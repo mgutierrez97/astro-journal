@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import * as Astronomy from "astronomy-engine";
 import { getPlanetPositions, ORBITAL_RADII, type PlanetPosition } from "@/lib/astronomy";
 
 // Visual config per planet
@@ -19,20 +20,29 @@ const PLANET_STYLE: Record<string, { color: string; radius: number; glow: string
 interface DrawParams {
   canvas: HTMLCanvasElement;
   positions: PlanetPosition[];
+  /** Logical canvas dimensions — passed explicitly to avoid stale DOM reads */
+  W: number;
+  H: number;
   /** Drift offset in pixels */
   driftX: number;
   driftY: number;
   focusedPlanet?: string | null;
 }
 
-function drawScene({ canvas, positions, driftX, driftY, focusedPlanet }: DrawParams) {
+// Map real AU distance to a visual radius using a power-law scale.
+// r^0.45 keeps inner planets visually separated while outer planets stay in frame.
+// Pluto (39.48 AU) anchors the outer edge so Pluto/Neptune are both in bounds.
+const SCALE_POWER = 0.45;
+const OUTER_ANCHOR_AU = ORBITAL_RADII["Pluto"] ?? 39.48;
+const OUTER_ANCHOR_SCALED = Math.pow(OUTER_ANCHOR_AU, SCALE_POWER);
+
+function visualRadius(au: number, viewRadius: number): number {
+  return (Math.pow(Math.max(au, 0.001), SCALE_POWER) / OUTER_ANCHOR_SCALED) * viewRadius;
+}
+
+function drawScene({ canvas, positions, W, H, driftX, driftY, focusedPlanet }: DrawParams) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-
-  // Use logical (CSS) pixel dimensions — the animation loop sets ctx transform to DPR scale
-  // so all drawing must be in logical space (0..offsetWidth, 0..offsetHeight)
-  const W = canvas.offsetWidth;
-  const H = canvas.offsetHeight;
 
   ctx.clearRect(0, 0, W, H);
 
@@ -47,27 +57,51 @@ function drawScene({ canvas, positions, driftX, driftY, focusedPlanet }: DrawPar
   const cx = W / 2 + driftX;
   const cy = H / 2 + driftY;
 
-  // Scale: we want Neptune's orbit to fit within 85% of the shorter dimension
-  const maxOrbitalRadius = ORBITAL_RADII["Neptune"] ?? 30;
+  // viewRadius: Neptune's scaled orbit fits within 42% of the shorter dimension
   const viewRadius = Math.min(W, H) * 0.42;
-  const scale = viewRadius / maxOrbitalRadius;
 
-  // Draw orbital rings
-  const orbitNames = ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune"];
+  // Draw orbital rings using the same power-law visual radii
+  const orbitNames = ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"];
   for (const name of orbitNames) {
-    const r = (ORBITAL_RADII[name] ?? 1) * scale;
+    const r = visualRadius(ORBITAL_RADII[name] ?? 1, viewRadius);
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(255,255,255,0.04)";
+    ctx.strokeStyle = "rgba(255,255,255,0.06)";
     ctx.lineWidth = 0.5;
     ctx.stroke();
   }
 
-  // Saturn's ring (artistic)
+  // Sun — dominant glowing anchor at center
+  // Outer corona
+  const coronaR = 36;
+  const corona = ctx.createRadialGradient(cx, cy, 0, cx, cy, coronaR);
+  corona.addColorStop(0,   "rgba(255,230,150,0.55)");
+  corona.addColorStop(0.35,"rgba(255,180,60,0.25)");
+  corona.addColorStop(0.7, "rgba(200,90,20,0.1)");
+  corona.addColorStop(1,   "rgba(0,0,0,0)");
+  ctx.beginPath();
+  ctx.arc(cx, cy, coronaR, 0, Math.PI * 2);
+  ctx.fillStyle = corona;
+  ctx.fill();
+
+  // Sun body
+  const sunGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 14);
+  sunGrad.addColorStop(0,   "rgba(255,255,220,1)");
+  sunGrad.addColorStop(0.3, "rgba(255,230,120,1)");
+  sunGrad.addColorStop(0.7, "rgba(220,140,40,0.95)");
+  sunGrad.addColorStop(1,   "rgba(180,80,10,0.8)");
+  ctx.beginPath();
+  ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+  ctx.fillStyle = sunGrad;
+  ctx.fill();
+
+  // Saturn's ring (artistic) — drawn before planets so planet renders on top
   const saturnPos = positions.find((p) => p.name === "Saturn");
   if (saturnPos) {
-    const sx = cx + saturnPos.x * scale;
-    const sy = cy - saturnPos.y * scale;
+    const angle = Math.atan2(saturnPos.y, saturnPos.x);
+    const vr = visualRadius(saturnPos.distanceAU, viewRadius);
+    const sx = cx + vr * Math.cos(angle);
+    const sy = cy - vr * Math.sin(angle);
     const sr = PLANET_STYLE["Saturn"].radius;
     ctx.beginPath();
     ctx.ellipse(sx, sy, sr * 2.4, sr * 0.7, Math.PI / 5, 0, Math.PI * 2);
@@ -76,33 +110,18 @@ function drawScene({ canvas, positions, driftX, driftY, focusedPlanet }: DrawPar
     ctx.stroke();
   }
 
-  // Sun
-  const sunGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 14);
-  sunGrad.addColorStop(0, "rgba(255,220,120,0.95)");
-  sunGrad.addColorStop(0.5, "rgba(200,169,110,0.6)");
-  sunGrad.addColorStop(1, "rgba(200,169,110,0)");
-  ctx.beginPath();
-  ctx.arc(cx, cy, 14, 0, Math.PI * 2);
-  ctx.fillStyle = sunGrad;
-  ctx.fill();
-
-  // Sun core
-  const sunCore = ctx.createRadialGradient(cx, cy, 0, cx, cy, 5);
-  sunCore.addColorStop(0, "rgba(255,240,180,1)");
-  sunCore.addColorStop(1, "rgba(220,180,90,0.9)");
-  ctx.beginPath();
-  ctx.arc(cx, cy, 5, 0, Math.PI * 2);
-  ctx.fillStyle = sunCore;
-  ctx.fill();
-
-  // Planets
+  // Planets — placed at heliocentric angle, visual distance from power-law scale
   for (const planet of positions) {
     const style = PLANET_STYLE[planet.name];
     if (!style) continue;
 
-    // Top-down ecliptic: x = ecliptic x, y = -ecliptic y (canvas y flips)
-    const px = cx + planet.x * scale;
-    const py = cy - planet.y * scale;
+    // Derive angle from real heliocentric ecliptic coords (vec.x, vec.y in AU)
+    const angle = Math.atan2(planet.y, planet.x);
+    const vr = visualRadius(planet.distanceAU, viewRadius);
+
+    // Top-down ecliptic: canvas y is flipped relative to ecliptic y
+    const px = cx + vr * Math.cos(angle);
+    const py = cy - vr * Math.sin(angle);
     const isFocused = focusedPlanet === planet.name;
 
     // Glow
@@ -163,11 +182,32 @@ export default function SolarSystem({ focusedPlanet, className = "" }: SolarSyst
   const driftRef = useRef({ t: 0, x: 0, y: 0 });
   const rafRef = useRef<number>(0);
 
-  // Load planet positions once on mount
+  // Load planet positions once on mount — add Earth explicitly since it's excluded from
+  // the PLANETS array in astronomy.ts (that module omits the observer's own body)
   useEffect(() => {
     try {
-      const pos = getPlanetPositions(new Date());
-      setPositions(pos);
+      const now = new Date();
+      const pos = getPlanetPositions(now);
+
+      // Compute Earth's heliocentric position directly
+      const time = Astronomy.MakeTime(now);
+      const vec = Astronomy.HelioVector(Astronomy.Body.Earth, time);
+      const distanceAU = Math.sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z);
+      const earthPos: PlanetPosition = {
+        name: "Earth",
+        longitude: 0,
+        latitude: 0,
+        distanceAU,
+        orbitalRadius: ORBITAL_RADII["Earth"] ?? 1.0,
+        x: vec.x,
+        y: vec.y,
+      };
+
+      // Insert Earth between Venus and Mars
+      const venusIdx = pos.findIndex((p) => p.name === "Venus");
+      const withEarth = [...pos];
+      withEarth.splice(venusIdx + 1, 0, earthPos);
+      setPositions(withEarth);
     } catch (e) {
       console.error("Failed to get planet positions:", e);
     }
@@ -206,20 +246,23 @@ export default function SolarSystem({ focusedPlanet, className = "" }: SolarSyst
       const driftX = Math.sin(phase * Math.PI * 2) * DRIFT_AMPLITUDE;
       const driftY = Math.sin(phase * Math.PI * 2 * 0.7 + 1) * DRIFT_AMPLITUDE * 0.6;
 
-      // Canvas logical size (pre-DPR)
-      const W = canvas.offsetWidth;
-      const H = canvas.offsetHeight;
-
-      // Temporarily reset transform for drawing in logical pixels
+      const dpr = window.devicePixelRatio;
       const ctx = canvas.getContext("2d");
-      if (ctx) {
-        const dpr = window.devicePixelRatio;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      }
+      if (!ctx) { rafRef.current = requestAnimationFrame(loop); return; }
+
+      // Derive logical dimensions from the canvas pixel buffer — authoritative source
+      // canvas.width was set by the resize handler as offsetWidth * dpr
+      const W = canvas.width / dpr;
+      const H = canvas.height / dpr;
+
+      // Reset transform to logical pixel space before every draw
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       drawScene({
         canvas,
         positions,
+        W,
+        H,
         driftX,
         driftY,
         focusedPlanet,
