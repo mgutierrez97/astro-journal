@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(zsh -l -c \"which node && node --version\")",
+      "Read(//Users/mig/.volta/bin/**)",
+      "Read(//usr/local/bin/**)",
+      "Read(//Users/mig/**)",
+      "Bash(export PATH=\"$PATH:/usr/local/bin\")",
+      "Bash(npx create-next-app@14 . --typescript --tailwind --app --no-src-dir --import-alias \"@/*\" --yes)",
+      "Bash(npm --version)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)"
+    ]
+  }
+}
