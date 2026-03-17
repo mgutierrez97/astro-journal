@@ -140,6 +140,22 @@ function drawScene({ canvas, positions, W, H, driftX, driftY, focusedPlanet }: D
     ctx.fillStyle = isFocused ? "#E8D8A8" : style.color;
     ctx.fill();
 
+    // Gold highlight ring for focused planet — spec: rgba(200,169,110,0.55)
+    if (isFocused) {
+      // Inner ring — solid gold
+      ctx.beginPath();
+      ctx.arc(px, py, style.radius + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(200,169,110,0.55)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // Outer halo — softer
+      ctx.beginPath();
+      ctx.arc(px, py, style.radius + 10, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(200,169,110,0.18)";
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+    }
+
     // Planet label
     ctx.fillStyle = isFocused ? "#C8A96E" : "rgba(139,144,156,0.55)";
     ctx.font = `${isFocused ? "500" : "400"} 9px Inter, system-ui, sans-serif`;
@@ -178,9 +194,16 @@ interface SolarSystemProps {
 export default function SolarSystem({ focusedPlanet, className = "" }: SolarSystemProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [positions, setPositions] = useState<PlanetPosition[]>([]);
-  // Drift animation state
   const driftRef = useRef({ t: 0, x: 0, y: 0 });
   const rafRef = useRef<number>(0);
+  // Smooth camera pan toward focused planet
+  const panRef = useRef({
+    curX: 0, curY: 0,     // current interpolated offset
+    targetX: 0, targetY: 0, // where we're heading
+    startX: 0, startY: 0,   // where the animation began
+    startTime: -1,
+    duration: 900,          // ms — matches motion spec
+  });
 
   // Load planet positions once on mount — add Earth explicitly since it's excluded from
   // the PLANETS array in astronomy.ts (that module omits the observer's own body)
@@ -231,6 +254,41 @@ export default function SolarSystem({ focusedPlanet, className = "" }: SolarSyst
     return () => ro.disconnect();
   }, []);
 
+  // When focusedPlanet changes, aim the camera at that planet (or back to center)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const pan = panRef.current;
+    // Snapshot current position as the new start
+    pan.startX = pan.curX;
+    pan.startY = pan.curY;
+    pan.startTime = performance.now();
+
+    if (!focusedPlanet || !canvas) {
+      pan.targetX = 0;
+      pan.targetY = 0;
+      return;
+    }
+
+    const planet = positions.find((p) => p.name === focusedPlanet);
+    if (!planet) {
+      pan.targetX = 0;
+      pan.targetY = 0;
+      return;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.width / dpr;
+    const H = canvas.height / dpr;
+    const viewRadius = Math.min(W, H) * 0.42;
+    const angle = Math.atan2(planet.y, planet.x);
+    const vr = visualRadius(planet.distanceAU, viewRadius);
+
+    // Shift the view center 28% toward the planet so it moves toward mid-panel
+    const FOCUS_FACTOR = 0.28;
+    pan.targetX = vr * Math.cos(angle) * FOCUS_FACTOR;
+    pan.targetY = -vr * Math.sin(angle) * FOCUS_FACTOR;
+  }, [focusedPlanet, positions]);
+
   // Animation loop — 90s cosmic drift
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -245,6 +303,16 @@ export default function SolarSystem({ focusedPlanet, className = "" }: SolarSyst
       // Smooth Lissajous-style drift
       const driftX = Math.sin(phase * Math.PI * 2) * DRIFT_AMPLITUDE;
       const driftY = Math.sin(phase * Math.PI * 2 * 0.7 + 1) * DRIFT_AMPLITUDE * 0.6;
+
+      // Advance camera pan — cubic ease-out over 900ms
+      const pan = panRef.current;
+      if (pan.startTime >= 0) {
+        const elapsed = timestamp - pan.startTime;
+        const t = Math.min(1, elapsed / pan.duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        pan.curX = pan.startX + (pan.targetX - pan.startX) * eased;
+        pan.curY = pan.startY + (pan.targetY - pan.startY) * eased;
+      }
 
       const dpr = window.devicePixelRatio;
       const ctx = canvas.getContext("2d");
@@ -263,8 +331,8 @@ export default function SolarSystem({ focusedPlanet, className = "" }: SolarSyst
         positions,
         W,
         H,
-        driftX,
-        driftY,
+        driftX: driftX + pan.curX,
+        driftY: driftY + pan.curY,
         focusedPlanet,
       });
 

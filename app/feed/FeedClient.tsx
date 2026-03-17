@@ -3,6 +3,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import TransitCard, { type TransitEvent } from "@/components/cards/TransitCard";
+import TransitDetail from "@/components/cards/TransitDetail";
 import GlassPanel from "@/components/ui/GlassPanel";
 import BottomNav from "@/components/ui/BottomNav";
 import { APP_NAME } from "@/lib/config";
@@ -216,94 +217,100 @@ export default function FeedClient() {
         </GlassPanel>
       </div>
 
-      {/* Transit card list — mobile: bottom drawer style; desktop: left panel */}
+      {/* Transit card list — mobile bottom strip, morphs to detail */}
       <aside
         className="md:hidden"
         style={{
           position: "absolute",
           zIndex: 10,
-          // Mobile: bottom strip
           bottom: 72,
           left: 0,
           right: 0,
-          maxHeight: "55vh",
-          overflowY: "auto",
-          padding: "0 16px 16px",
+          maxHeight: activeTransit ? "78vh" : "55vh",
+          overflow: "hidden",
+          transition: "max-height 480ms ease-in-out",
         }}
       >
-        {/* Mobile: app name label above cards */}
+        {/* Card list view */}
         <div
-          className="md:hidden"
           style={{
-            padding: "14px 0 10px",
-            display: "flex",
-            alignItems: "baseline",
-            gap: 8,
+            position: activeTransit ? "absolute" : "relative",
+            inset: 0,
+            overflowY: "auto",
+            padding: "0 16px 16px",
+            opacity: activeTransit ? 0 : 1,
+            transform: activeTransit ? "translateX(-16px)" : "translateX(0)",
+            transition: "opacity 480ms ease-in-out, transform 480ms ease-in-out",
+            pointerEvents: activeTransit ? "none" : "auto",
           }}
         >
-          <span
+          <div
             style={{
-              fontFamily: "EB Garamond, Georgia, serif",
-              fontSize: 22,
-              fontWeight: 400,
-              color: "#E2E4EA",
+              padding: "14px 0 10px",
+              display: "flex",
+              alignItems: "baseline",
+              gap: 8,
             }}
           >
-            {APP_NAME}
-          </span>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 500,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: "#4A5060",
-            }}
-          >
-            Transits
-          </span>
+            <span
+              style={{
+                fontFamily: "EB Garamond, Georgia, serif",
+                fontSize: 22,
+                fontWeight: 400,
+                color: "#E2E4EA",
+              }}
+            >
+              {APP_NAME}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 500,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: "#4A5060",
+              }}
+            >
+              Transits
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {PLACEHOLDER_TRANSITS.map((event) => (
+              <TransitCard
+                key={event.id}
+                event={event}
+                active={activeTransitId === event.id}
+                onClick={() => handleCardClick(event.id)}
+              />
+            ))}
+          </div>
         </div>
 
-        {/* Desktop panel header */}
-        <div
-          className="hidden md:block"
-          style={{
-            padding: "20px 20px 12px",
-            borderBottom: "0.5px solid rgba(255,255,255,0.05)",
-          }}
-        >
-          <span
+        {/* Mobile detail view */}
+        {activeTransit && (
+          <div
             style={{
-              fontSize: 10,
-              fontWeight: 500,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: "#4A5060",
+              position: "absolute",
+              inset: 0,
+              opacity: activeTransit ? 1 : 0,
+              transform: activeTransit ? "translateX(0)" : "translateX(16px)",
+              transition: "opacity 480ms ease-in-out, transform 480ms ease-in-out",
+              background: "rgba(6,8,14,0.72)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              borderTop: "0.5px solid rgba(255,255,255,0.08)",
+              borderRadius: "7px 7px 0 0",
             }}
           >
-            Upcoming Transits
-          </span>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-          }}
-        >
-          {PLACEHOLDER_TRANSITS.map((event) => (
-            <TransitCard
-              key={event.id}
-              event={event}
-              active={activeTransitId === event.id}
-              onClick={() => handleCardClick(event.id)}
+            <TransitDetail
+              event={activeTransit}
+              onBack={() => setActiveTransitId(null)}
             />
-          ))}
-        </div>
+          </div>
+        )}
       </aside>
 
-      {/* Desktop left panel chrome */}
+      {/* Desktop left panel — two views crossfade in the same container */}
       <div
         className="hidden md:block"
         style={{
@@ -317,64 +324,96 @@ export default function FeedClient() {
           background: "rgba(6,8,14,0.45)",
           backdropFilter: "blur(16px)",
           WebkitBackdropFilter: "blur(16px)",
-          overflowY: "auto",
-          padding: "0 16px 24px",
+          overflow: "hidden",
         }}
       >
-        {/* Birth data bar for desktop */}
-        <div style={{ padding: "16px 4px" }}>
-          <GlassPanel
-            style={{
-              padding: "10px 14px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <span style={{ fontSize: 11, color: "#8B909C" }}>
-              Add birth data to personalize
-            </span>
-            <button
+        {/* Card list view — slides out left on open */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            overflowY: "auto",
+            padding: "0 16px 24px",
+            opacity: activeTransit ? 0 : 1,
+            transform: activeTransit ? "translateX(-16px)" : "translateX(0)",
+            transition: "opacity 480ms ease-in-out, transform 480ms ease-in-out",
+            pointerEvents: activeTransit ? "none" : "auto",
+          }}
+        >
+          {/* Birth data bar */}
+          <div style={{ padding: "16px 4px" }}>
+            <GlassPanel
+              style={{
+                padding: "10px 14px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <span style={{ fontSize: 11, color: "#8B909C" }}>
+                Add birth data to personalize
+              </span>
+              <button
+                style={{
+                  fontSize: 10,
+                  fontWeight: 500,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: "#C8A96E",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                Set up →
+              </button>
+            </GlassPanel>
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <span
               style={{
                 fontSize: 10,
                 fontWeight: 500,
                 letterSpacing: "0.08em",
                 textTransform: "uppercase",
-                color: "#C8A96E",
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                padding: 0,
+                color: "#4A5060",
               }}
             >
-              Set up →
-            </button>
-          </GlassPanel>
+              Upcoming Transits
+            </span>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {PLACEHOLDER_TRANSITS.map((event) => (
+              <TransitCard
+                key={event.id}
+                event={event}
+                active={activeTransitId === event.id}
+                onClick={() => handleCardClick(event.id)}
+              />
+            ))}
+          </div>
         </div>
 
-        <div style={{ marginBottom: 12 }}>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 500,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: "#4A5060",
-            }}
-          >
-            Upcoming Transits
-          </span>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {PLACEHOLDER_TRANSITS.map((event) => (
-            <TransitCard
-              key={event.id}
-              event={event}
-              active={activeTransitId === event.id}
-              onClick={() => handleCardClick(event.id)}
+        {/* Detail view — slides in from right on open */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            opacity: activeTransit ? 1 : 0,
+            transform: activeTransit ? "translateX(0)" : "translateX(16px)",
+            transition: "opacity 480ms ease-in-out, transform 480ms ease-in-out",
+            pointerEvents: activeTransit ? "auto" : "none",
+          }}
+        >
+          {activeTransit && (
+            <TransitDetail
+              event={activeTransit}
+              onBack={() => setActiveTransitId(null)}
             />
-          ))}
+          )}
         </div>
       </div>
 
