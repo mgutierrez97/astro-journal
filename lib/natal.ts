@@ -107,14 +107,65 @@ function calcASC(ramc: number, lat: number): number {
 
 // ─── Placidus house cusps ─────────────────────────────────────────────────────
 //
-// Astro.com-verified Placidus cusps for BIRTH_DATA (June 28 1997, 7 PM PDT,
-// Bellflower CA). Index 0 = H1 (ASC), index 9 = H10 (MC).
-// Ecliptic longitudes (0–360°).
+// Upper houses H11, H12 — between MC and ASC (above horizon, diurnal side):
+//   (RA_cusp − RAMC) mod 360 = n/3 × DSA_cusp   n=1 → H11, n=2 → H12
 //
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function calcPlacidusHouses(_ramc: number, _lat: number): number[] {
-  return [262.93, 297.20, 335.05, 9.87, 38.17, 61.52,
-          82.93, 117.20, 155.05, 189.87, 218.17, 241.52];
+// Lower houses H2, H3 — between IC and ASC (below horizon, nocturnal side):
+//   (RAIC − RA_cusp) mod 360 = n/3 × NSA_cusp   n=1 → H3, n=2 → H2
+//   (H3 is closer to IC; H2 is closer to ASC — frac order is intentionally reversed)
+//
+// Opposite cusps: H5=H11+180, H6=H12+180, H8=H2+180, H9=H3+180.
+
+function placidusUpper(ramc: number, lat: number, frac: number): number {
+  let lambda = mod360(calcMC(ramc) + frac * 60); // start past MC
+  for (let i = 0; i < 60; i++) {
+    const ra  = eclToRA(lambda);
+    const dsa = diurnalSemiArc(eclToDec(lambda), lat);
+    const err = frac * dsa - mod360(ra - ramc);
+    if (Math.abs(err) < 0.0001) break;
+    lambda = mod360(lambda + err * 0.4); // increase lambda → increase RA
+  }
+  return lambda;
+}
+
+function placidusLower(ramc: number, lat: number, frac: number): number {
+  const raic = mod360(ramc + 180);
+  let lambda = mod360(calcMC(ramc) + 180 - frac * 100); // start before IC
+  for (let i = 0; i < 60; i++) {
+    const ra  = eclToRA(lambda);
+    const nsa = 180 - diurnalSemiArc(eclToDec(lambda), lat);
+    const err = frac * nsa - mod360(raic - ra);
+    if (Math.abs(err) < 0.0001) break;
+    lambda = mod360(lambda - err * 0.4); // decrease lambda → decrease RA
+  }
+  return lambda;
+}
+
+/**
+ * Returns 12 Placidus house cusps as ecliptic longitudes (0–360°).
+ * Index 0 = H1 (ASC), index 9 = H10 (MC).
+ */
+function calcPlacidusHouses(ramc: number, lat: number): number[] {
+  const asc = calcASC(ramc, lat);
+  const mc  = calcMC(ramc);
+  const h11 = placidusUpper(ramc, lat, 1 / 3);
+  const h12 = placidusUpper(ramc, lat, 2 / 3);
+  const h3  = placidusLower(ramc, lat, 1 / 3); // frac=1/3 → H3 (near IC)
+  const h2  = placidusLower(ramc, lat, 2 / 3); // frac=2/3 → H2 (near ASC)
+  return [
+    asc,               // H1  (ASC)
+    h2,                // H2
+    h3,                // H3
+    mod360(mc + 180),  // H4  (IC)
+    mod360(h11 + 180), // H5
+    mod360(h12 + 180), // H6
+    mod360(asc + 180), // H7  (DSC)
+    mod360(h2 + 180),  // H8
+    mod360(h3 + 180),  // H9
+    mc,                // H10 (MC)
+    h11,               // H11
+    h12,               // H12
+  ];
 }
 
 /** Returns which house (1–12) a given ecliptic longitude belongs to */
