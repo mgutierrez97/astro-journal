@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import TransitCard, { type TransitEvent } from "@/components/cards/TransitCard";
+import TransitCard from "@/components/cards/TransitCard";
 import TransitDetail from "@/components/cards/TransitDetail";
 import GlassPanel from "@/components/ui/GlassPanel";
 import BirthDataCard, { BIRTH_DATA_KEY, type StoredBirthData } from "@/components/ui/BirthDataCard";
 import BottomNav from "@/components/ui/BottomNav";
 import { APP_NAME } from "@/lib/config";
+import { filterTransitsForFeed } from "@/lib/transitFilter";
+import { generateTransitsCached } from "@/lib/transitGenerator";
+import { calculateNatalChart, birthDataToDate } from "@/lib/natal";
 
 // SolarSystem uses Canvas + requestAnimationFrame — client only, no SSR
 const SolarSystem = dynamic(() => import("@/components/cosmic/SolarSystem"), {
@@ -15,80 +18,13 @@ const SolarSystem = dynamic(() => import("@/components/cosmic/SolarSystem"), {
   loading: () => <div style={{ width: "100%", height: "100%", background: "#0D1117" }} />,
 });
 
-// --- Placeholder transit data ---
-const PLACEHOLDER_TRANSITS: TransitEvent[] = [
-  {
-    id: "t1",
-    planet: "Mercury",
-    aspect: "Conjunction",
-    targetPlanet: "Neptune",
-    transitType: "conjunction",
-    peakDate: new Date("2026-03-19"),
-    title: "Mercury conjunct Neptune",
-    themes: "fog · intuition · dissolution",
-    status: "approaching",
-  },
-  {
-    id: "t2",
-    planet: "Venus",
-    aspect: "Trine",
-    targetPlanet: "Saturn",
-    transitType: "trine",
-    peakDate: new Date("2026-03-21"),
-    title: "Venus trine Saturn",
-    themes: "structure · devotion · longevity",
-    status: "approaching",
-  },
-  {
-    id: "t3",
-    planet: "Mars",
-    aspect: "Square",
-    targetPlanet: "Pluto",
-    transitType: "square",
-    peakDate: new Date("2026-03-16"),
-    title: "Mars square Pluto",
-    themes: "power · transformation · friction",
-    status: "active",
-  },
-  {
-    id: "t4",
-    planet: "Jupiter",
-    aspect: "Ingress",
-    transitType: "ingress",
-    peakDate: new Date("2026-03-28"),
-    title: "Jupiter enters Gemini",
-    themes: "expansion · curiosity · multiplicity",
-    status: "approaching",
-  },
-  {
-    id: "t5",
-    planet: "Sun",
-    aspect: "Opposition",
-    targetPlanet: "Saturn",
-    transitType: "opposition",
-    peakDate: new Date("2026-03-12"),
-    title: "Sun opposite Saturn",
-    themes: "accountability · limits · maturity",
-    status: "separating",
-  },
-  {
-    id: "t6",
-    planet: "Saturn",
-    aspect: "Sextile",
-    targetPlanet: "Uranus",
-    transitType: "sextile",
-    peakDate: new Date("2026-04-02"),
-    title: "Saturn sextile Uranus",
-    themes: "reform · stability · innovation",
-    status: "approaching",
-  },
-];
+// PLACEHOLDER_TRANSITS removed — feed now uses real ephemeris data via generateTransitsCached.
 
 export default function FeedClient() {
   const [activeTransitId, setActiveTransitId] = useState<string | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [birthData, setBirthData] = useState<StoredBirthData | null>(null);
 
+  // ── Sync birth data from localStorage ───────────────────────────────────────
   useEffect(() => {
     function readBirthData() {
       const raw = localStorage.getItem(BIRTH_DATA_KEY);
@@ -99,7 +35,96 @@ export default function FeedClient() {
     return () => window.removeEventListener("birth-data-updated", readBirthData);
   }, []);
 
-  const activeTransit = PLACEHOLDER_TRANSITS.find((t) => t.id === activeTransitId);
+  // ── Natal chart — derived from birth data when available ────────────────────
+  const natalChart = useMemo(() => {
+    if (!birthData) return null;
+    try {
+      const birthDate = birthDataToDate(
+        birthData.birthDate,
+        birthData.birthTime,
+        birthData.timezone,
+      );
+      return calculateNatalChart(birthDate, birthData.latitude, birthData.longitude);
+    } catch {
+      return null;
+    }
+  }, [birthData]);
+
+  // ── Transit generation — cached daily, keyed on birth data changes ───────────
+  // generateTransitsCached handles the localStorage cache internally.
+  // useMemo ensures we don't recalculate on every React render.
+  const rawTransits = useMemo(
+    () => generateTransitsCached(
+      birthData   ?? undefined,
+      natalChart  ?? undefined,
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [birthData, natalChart],
+  );
+
+  // ── Scoring + filtering ──────────────────────────────────────────────────────
+  const filteredTransits = useMemo(
+    () => filterTransitsForFeed(rawTransits, birthData ?? undefined),
+    [rawTransits, birthData],
+  );
+
+  // ── Verification log (development only) ──────────────────────────────────────
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return;
+    if (rawTransits.length === 0) return;
+
+    console.group(
+      `[Feed] Generation complete — ${rawTransits.length} total, ${filteredTransits.length} shown`,
+    );
+    console.table(
+      filteredTransits.map((st) => ({
+        title:   st.transit.title,
+        score:   st.score,
+        tier:    st.tier,
+        special: st.isSpecialEvent,
+        peak:    st.transit.peakDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        house:   st.transit.house ?? "—",
+      })),
+    );
+
+    // Verification checks
+    const hasJupiterIngress = rawTransits.some(
+      (t) => t.transitType === "ingress" && t.planet === "Jupiter",
+    );
+    const moonPhases = rawTransits.filter(
+      (t) => t.transitType === "new-moon" || t.transitType === "full-moon" ||
+             t.transitType === "eclipse-solar" || t.transitType === "eclipse-lunar",
+    );
+    const uranusIngress = rawTransits.find(
+      (t) => t.transitType === "ingress" && t.planet === "Uranus",
+    );
+
+    if (hasJupiterIngress) {
+      console.warn("[Feed] ⚠ Jupiter ingress appeared — verify ephemeris (Jupiter is ~15° Cancer)");
+    } else {
+      console.log("[Feed] ✓ No Jupiter ingress (correct — Jupiter is in Cancer)");
+    }
+
+    if (moonPhases.length > 0) {
+      console.log("[Feed] ✓ Moon phases:", moonPhases.map(
+        (t) => `${t.title} (${t.peakDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })})`,
+      ).join(", "));
+    } else {
+      console.warn("[Feed] ⚠ No moon phases found in 30-day window");
+    }
+
+    if (uranusIngress) {
+      console.log(`[Feed] ✓ Uranus ingress found: ${uranusIngress.title} (${uranusIngress.peakDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })})`);
+    } else {
+      console.log("[Feed] — Uranus ingress not in 30-day window (appears ~Apr 27, use 45-day scan to see it)");
+    }
+
+    console.groupEnd();
+  }, [rawTransits, filteredTransits]);
+
+  const activeTransit = filteredTransits.find((st) => st.transit.id === activeTransitId);
+
+  const activeEvent = activeTransit?.transit ?? null;
 
   const handleCardClick = (id: string) => {
     setActiveTransitId((prev) => (prev === id ? null : id));
@@ -123,7 +148,7 @@ export default function FeedClient() {
           zIndex: 0,
         }}
       >
-        <SolarSystem focusedPlanet={activeTransit?.planet ?? null} />
+        <SolarSystem focusedPlanet={activeEvent?.planet ?? null} />
       </div>
 
       {/* Subtle vignette overlay to ground the cards */}
@@ -213,7 +238,7 @@ export default function FeedClient() {
           bottom: 72,
           left: 0,
           right: 0,
-          maxHeight: activeTransit ? "78vh" : "55vh",
+          maxHeight: activeEvent ? "78vh" : "55vh",
           overflow: "hidden",
           transition: "max-height 480ms ease-in-out",
         }}
@@ -221,14 +246,14 @@ export default function FeedClient() {
         {/* Card list view */}
         <div
           style={{
-            position: activeTransit ? "absolute" : "relative",
+            position: activeEvent ? "absolute" : "relative",
             inset: 0,
             overflowY: "auto",
             padding: "0 16px 16px",
-            opacity: activeTransit ? 0 : 1,
-            transform: activeTransit ? "translateX(-16px)" : "translateX(0)",
+            opacity: activeEvent ? 0 : 1,
+            transform: activeEvent ? "translateX(-16px)" : "translateX(0)",
             transition: "opacity 480ms ease-in-out, transform 480ms ease-in-out",
-            pointerEvents: activeTransit ? "none" : "auto",
+            pointerEvents: activeEvent ? "none" : "auto",
           }}
         >
           <div
@@ -262,25 +287,27 @@ export default function FeedClient() {
             </span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {PLACEHOLDER_TRANSITS.map((event) => (
+            {filteredTransits.map((st) => (
               <TransitCard
-                key={event.id}
-                event={event}
-                active={activeTransitId === event.id}
-                onClick={() => handleCardClick(event.id)}
+                key={st.transit.id}
+                event={st.transit}
+                tier={st.tier === "suppressed" ? undefined : st.tier}
+                isSpecialEvent={st.isSpecialEvent}
+                active={activeTransitId === st.transit.id}
+                onClick={() => handleCardClick(st.transit.id)}
               />
             ))}
           </div>
         </div>
 
         {/* Mobile detail view */}
-        {activeTransit && (
+        {activeEvent && (
           <div
             style={{
               position: "absolute",
               inset: 0,
-              opacity: activeTransit ? 1 : 0,
-              transform: activeTransit ? "translateX(0)" : "translateX(16px)",
+              opacity: activeEvent ? 1 : 0,
+              transform: activeEvent ? "translateX(0)" : "translateX(16px)",
               transition: "opacity 480ms ease-in-out, transform 480ms ease-in-out",
               background: "rgba(6,8,14,0.72)",
               backdropFilter: "blur(20px)",
@@ -290,7 +317,7 @@ export default function FeedClient() {
             }}
           >
             <TransitDetail
-              event={activeTransit}
+              event={activeEvent}
               onBack={() => setActiveTransitId(null)}
             />
           </div>
@@ -321,10 +348,10 @@ export default function FeedClient() {
             inset: 0,
             overflowY: "auto",
             padding: "0 16px 24px",
-            opacity: activeTransit ? 0 : 1,
-            transform: activeTransit ? "translateX(-16px)" : "translateX(0)",
+            opacity: activeEvent ? 0 : 1,
+            transform: activeEvent ? "translateX(-16px)" : "translateX(0)",
             transition: "opacity 480ms ease-in-out, transform 480ms ease-in-out",
-            pointerEvents: activeTransit ? "none" : "auto",
+            pointerEvents: activeEvent ? "none" : "auto",
           }}
         >
           {/* Birth data bar */}
@@ -347,12 +374,14 @@ export default function FeedClient() {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {PLACEHOLDER_TRANSITS.map((event) => (
+            {filteredTransits.map((st) => (
               <TransitCard
-                key={event.id}
-                event={event}
-                active={activeTransitId === event.id}
-                onClick={() => handleCardClick(event.id)}
+                key={st.transit.id}
+                event={st.transit}
+                tier={st.tier === "suppressed" ? undefined : st.tier}
+                isSpecialEvent={st.isSpecialEvent}
+                active={activeTransitId === st.transit.id}
+                onClick={() => handleCardClick(st.transit.id)}
               />
             ))}
           </div>
@@ -363,15 +392,15 @@ export default function FeedClient() {
           style={{
             position: "absolute",
             inset: 0,
-            opacity: activeTransit ? 1 : 0,
-            transform: activeTransit ? "translateX(0)" : "translateX(16px)",
+            opacity: activeEvent ? 1 : 0,
+            transform: activeEvent ? "translateX(0)" : "translateX(16px)",
             transition: "opacity 480ms ease-in-out, transform 480ms ease-in-out",
-            pointerEvents: activeTransit ? "auto" : "none",
+            pointerEvents: activeEvent ? "auto" : "none",
           }}
         >
-          {activeTransit && (
+          {activeEvent && (
             <TransitDetail
-              event={activeTransit}
+              event={activeEvent}
               onBack={() => setActiveTransitId(null)}
             />
           )}

@@ -12,6 +12,12 @@ const INTERPRETATIONS: Record<TransitEvent["transitType"], string> = {
   opposition: "A mirror appears between two parts of your chart. Something that has been operating quietly in the background insists on being seen. Both sides carry truth. The task is integration, not choosing.",
   sextile: "A quiet opening. Compatible energies extend an invitation they will not press. The opportunity is real but requires your participation to activate. What would you do if the path were actually clear?",
   ingress: "A planet crossing a sign boundary marks a distinct shift in the quality of its expression. The themes of the incoming sign become the new medium. This is less an event than a change in atmosphere.",
+  "station-retrograde": "A planet slows to a halt before reversing direction — one of the most potent moments in any planetary cycle. The forward motion that has been accumulating pauses. What has been building now turns inward for review.",
+  "station-direct": "After weeks of retrograde motion, a planet resumes forward momentum. The period of review is complete. What was reconsidered can now be integrated and carried forward with greater clarity.",
+  "eclipse-solar": "A solar eclipse supercharges the energy of a new moon — the lights align at the nodal axis, marking a threshold. What is seeded here carries extraordinary weight. Eclipses often coincide with irreversible turns.",
+  "eclipse-lunar": "A lunar eclipse brings a full moon to the nodal axis, illuminating what must be released. The emotional reckoning is sharper and more final than an ordinary full moon. Something closes.",
+  "new-moon": "The lunation cycle begins again. The conjunction of Sun and Moon is an invitation to set intention before the light returns. What you initiate in the three days following tends to carry through the full cycle.",
+  "full-moon": "The Sun and Moon stand opposite one another, illuminating what the new moon seeded. Culmination, revelation, release. Whatever has been building in the intervening two weeks reaches its peak of visibility.",
 };
 
 const STATUS_STYLE: Record<TransitEvent["status"], { color: string; label: string }> = {

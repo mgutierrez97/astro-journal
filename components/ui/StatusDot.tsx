@@ -1,11 +1,12 @@
 "use client";
 
-type StatusColor = "green" | "amber" | "red";
+type StatusColor = "green" | "amber" | "red" | "gold";
 
 const COLORS: Record<StatusColor, string> = {
   green: "#3EB489",
   amber: "#C9933A",
-  red: "#B85555",
+  red:   "#B85555",
+  gold:  "#C8A96E",
 };
 
 export default function StatusDot({ color = "green" }: { color?: StatusColor }) {

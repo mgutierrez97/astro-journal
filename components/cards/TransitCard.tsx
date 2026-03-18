@@ -8,7 +8,12 @@ export interface TransitEvent {
   planet: string;
   aspect: string;
   targetPlanet?: string; // e.g. "Neptune" for planet-to-planet transits
-  transitType: "conjunction" | "trine" | "square" | "opposition" | "sextile" | "ingress";
+  transitType:
+    | "conjunction" | "trine" | "square" | "opposition" | "sextile"
+    | "ingress"
+    | "station-retrograde" | "station-direct"
+    | "eclipse-solar" | "eclipse-lunar"
+    | "new-moon" | "full-moon";
   peakDate: Date;
   house?: number; // present if birth data available
   /** Short descriptor, e.g. "Mercury enters Aries" */
@@ -20,20 +25,18 @@ export interface TransitEvent {
 
 interface TransitCardProps {
   event: TransitEvent;
+  /** Scoring tier — controls status dot colour. Suppressed items are never rendered. */
+  tier?: "major" | "active";
+  /** When true, renders a faint gold border-top even in resting state. */
+  isSpecialEvent?: boolean;
   active?: boolean;
   onClick?: () => void;
 }
 
 const STATUS_LABELS: Record<TransitEvent["status"], string> = {
-  active: "active",
+  active:      "active",
   approaching: "approaching",
-  separating: "separating",
-};
-
-const STATUS_COLORS: Record<TransitEvent["status"], "green" | "amber" | "red"> = {
-  active: "green",
-  approaching: "amber",
-  separating: "red",
+  separating:  "separating",
 };
 
 function formatPeakDate(date: Date): string {
@@ -43,7 +46,25 @@ function formatPeakDate(date: Date): string {
   });
 }
 
-export default function TransitCard({ event, active = false, onClick }: TransitCardProps) {
+export default function TransitCard({
+  event,
+  tier,
+  isSpecialEvent = false,
+  active = false,
+  onClick,
+}: TransitCardProps) {
+  // Dot colour is driven by scoring tier; falls back to green when tier is absent
+  const dotColor: "gold" | "amber" | "green" =
+    tier === "major"  ? "gold"  :
+    tier === "active" ? "amber" :
+    "green";
+
+  // Special event cards show a faint gold border-top even when not selected
+  const specialEventStyle: React.CSSProperties =
+    isSpecialEvent && !active
+      ? { borderTop: "0.5px solid rgba(200,169,110,0.28)" }
+      : {};
+
   return (
     <GlassPanel
       active={active}
@@ -57,12 +78,13 @@ export default function TransitCard({ event, active = false, onClick }: TransitC
         animation: "cardEnter 380ms ease-out",
         transition: "border-top-color 380ms ease-out",
         userSelect: "none",
+        ...specialEventStyle,
       }}
     >
       {/* Header row: planet + status */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <StatusDot color={STATUS_COLORS[event.status]} />
+          <StatusDot color={dotColor} />
           <span
             style={{
               fontSize: 10,
