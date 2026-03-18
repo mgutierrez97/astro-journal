@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import GlassPanel from "@/components/ui/GlassPanel";
+import BirthDataCard from "@/components/ui/BirthDataCard";
+import { BIRTH_DATA_KEY, type StoredBirthData } from "@/components/ui/BirthDataCard";
 import BottomNav from "@/components/ui/BottomNav";
 import NatalPlanetDetail from "@/components/cards/NatalPlanetDetail";
 import {
   calculateNatalChart,
-  BIRTH_DATA,
+  birthDataToDate,
   SIGN_KEYWORDS,
   type NatalChart,
   type NatalPlanet,
@@ -177,11 +179,24 @@ export default function YouClient() {
   const [activePlanetName, setActivePlanetName] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      setChart(calculateNatalChart());
-    } catch (e) {
-      console.error("Failed to calculate natal chart:", e);
+    function calcFromStorage() {
+      try {
+        const raw = localStorage.getItem(BIRTH_DATA_KEY);
+        if (raw) {
+          const s = JSON.parse(raw) as StoredBirthData;
+          const date = birthDataToDate(s.birthDate, s.birthTime, s.timezone);
+          setChart(calculateNatalChart(date, s.latitude, s.longitude));
+        } else {
+          setChart(calculateNatalChart()); // hardcoded dev defaults
+        }
+      } catch (e) {
+        console.error("Failed to calculate natal chart:", e);
+        setChart(calculateNatalChart());
+      }
     }
+    calcFromStorage();
+    window.addEventListener("birth-data-updated", calcFromStorage);
+    return () => window.removeEventListener("birth-data-updated", calcFromStorage);
   }, []);
 
   const activePlanet = chart?.planets.find((p) => p.name === activePlanetName) ?? null;
@@ -196,29 +211,9 @@ export default function YouClient() {
   // Panel content (shared between desktop + mobile)
   const ChartListContent = chart ? (
     <>
-      {/* Birth data label */}
+      {/* Birth data card */}
       <div style={{ padding: "16px 4px 12px" }}>
-        <GlassPanel style={{ padding: "10px 14px" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <span style={{ fontSize: 11, color: "#E2E4EA", fontFamily: "EB Garamond, serif" }}>
-              {BIRTH_DATA.city}
-            </span>
-            <span style={{ fontSize: 10, color: "#4A5060" }}>
-              {BIRTH_DATA.date.toLocaleDateString("en-US", {
-                month: "long",
-                day: "numeric",
-                year: "numeric",
-              })}
-              {" · "}
-              {BIRTH_DATA.date.toLocaleTimeString("en-US", {
-                hour: "numeric",
-                minute: "2-digit",
-                timeZone: BIRTH_DATA.timezone,
-                timeZoneName: "short",
-              })}
-            </span>
-          </div>
-        </GlassPanel>
+        <BirthDataCard />
       </div>
 
       {/* Big 3 */}

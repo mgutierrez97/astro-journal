@@ -16,6 +16,42 @@ export const BIRTH_DATA = {
   timezone: "America/Los_Angeles",
 } as const;
 
+/**
+ * Converts a stored birth date + time + IANA timezone to a UTC Date.
+ * Uses Intl.DateTimeFormat to measure the true UTC offset at that moment,
+ * so DST is handled correctly and the result is browser-timezone-agnostic.
+ *
+ * Example: ("1997-06-28", "19:00", "America/Los_Angeles") → 1997-06-29T02:00:00Z
+ */
+export function birthDataToDate(
+  dateStr: string,   // "YYYY-MM-DD"
+  timeStr: string,   // "HH:MM"
+  timezone: string,  // IANA e.g. "America/Los_Angeles"
+): Date {
+  // Step 1 — treat the given date/time as UTC to make a reference point
+  const fakeUTC = new Date(`${dateStr}T${timeStr}:00Z`);
+
+  // Step 2 — ask Intl what the local clock in `timezone` reads at that moment
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(fakeUTC);
+  const get = (type: string) =>
+    parseInt(parts.find((p) => p.type === type)!.value, 10);
+
+  // Step 3 — reconstruct that local time as a plain UTC value (no tz shift)
+  const localAsUTC = Date.UTC(
+    get("year"), get("month") - 1, get("day"),
+    get("hour") % 24, get("minute"), get("second"),
+  );
+
+  // Step 4 — the difference is the tz offset; apply it to find true UTC
+  return new Date(fakeUTC.getTime() + (fakeUTC.getTime() - localAsUTC));
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface NatalPlanet {

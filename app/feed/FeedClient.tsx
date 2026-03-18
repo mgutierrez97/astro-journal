@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import TransitCard, { type TransitEvent } from "@/components/cards/TransitCard";
 import TransitDetail from "@/components/cards/TransitDetail";
 import GlassPanel from "@/components/ui/GlassPanel";
+import BirthDataCard, { BIRTH_DATA_KEY, type StoredBirthData } from "@/components/ui/BirthDataCard";
 import BottomNav from "@/components/ui/BottomNav";
 import { APP_NAME } from "@/lib/config";
 
@@ -85,6 +86,18 @@ const PLACEHOLDER_TRANSITS: TransitEvent[] = [
 
 export default function FeedClient() {
   const [activeTransitId, setActiveTransitId] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [birthData, setBirthData] = useState<StoredBirthData | null>(null);
+
+  useEffect(() => {
+    function readBirthData() {
+      const raw = localStorage.getItem(BIRTH_DATA_KEY);
+      setBirthData(raw ? (JSON.parse(raw) as StoredBirthData) : null);
+    }
+    readBirthData();
+    window.addEventListener("birth-data-updated", readBirthData);
+    return () => window.removeEventListener("birth-data-updated", readBirthData);
+  }, []);
 
   const activeTransit = PLACEHOLDER_TRANSITS.find((t) => t.id === activeTransitId);
 
@@ -176,7 +189,7 @@ export default function FeedClient() {
         </nav>
       </header>
 
-      {/* Birth data input bar — shown when no birth data */}
+      {/* Birth data bar — mobile */}
       <div
         className="md:hidden"
         style={{
@@ -188,33 +201,7 @@ export default function FeedClient() {
           padding: "12px 16px",
         }}
       >
-        <GlassPanel
-          style={{
-            padding: "10px 14px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <span style={{ fontSize: 12, color: "#8B909C" }}>
-            Add your birth data to personalize transits
-          </span>
-          <button
-            style={{
-              fontSize: 10,
-              fontWeight: 500,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: "#C8A96E",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-            }}
-          >
-            Set up →
-          </button>
-        </GlassPanel>
+        <BirthDataCard />
       </div>
 
       {/* Transit card list — mobile bottom strip, morphs to detail */}
@@ -341,34 +328,8 @@ export default function FeedClient() {
           }}
         >
           {/* Birth data bar */}
-          <div style={{ padding: "16px 4px" }}>
-            <GlassPanel
-              style={{
-                padding: "10px 14px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <span style={{ fontSize: 11, color: "#8B909C" }}>
-                Add birth data to personalize
-              </span>
-              <button
-                style={{
-                  fontSize: 10,
-                  fontWeight: 500,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: "#C8A96E",
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: 0,
-                }}
-              >
-                Set up →
-              </button>
-            </GlassPanel>
+          <div style={{ padding: "16px 4px 12px" }}>
+            <BirthDataCard />
           </div>
 
           <div style={{ marginBottom: 12 }}>
