@@ -53,9 +53,8 @@ export default function TransitCard({
   active = false,
   onClick,
 }: TransitCardProps) {
-  // Dot colour is driven by scoring tier; falls back to green when tier is absent
-  const dotColor: "gold" | "amber" | "green" =
-    tier === "major"  ? "gold"  :
+  // Dot colour: major → green (status green, distinct from gold CTAs), active → amber
+  const dotColor: "amber" | "green" =
     tier === "active" ? "amber" :
     "green";
 

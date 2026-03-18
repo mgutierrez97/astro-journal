@@ -216,12 +216,16 @@ export interface AspectDefinition {
 }
 
 export const ASPECTS: AspectDefinition[] = [
-  { name: "conjunction", angle:   0, orb: 6 },
-  { name: "opposition",  angle: 180, orb: 6 },
-  { name: "square",      angle:  90, orb: 6 },
-  { name: "trine",       angle: 120, orb: 6 },
-  { name: "sextile",     angle:  60, orb: 6 },
+  { name: "conjunction", angle:   0, orb: 3 },
+  { name: "opposition",  angle: 180, orb: 3 },
+  { name: "square",      angle:  90, orb: 3 },
+  { name: "trine",       angle: 120, orb: 3 },
+  { name: "sextile",     angle:  60, orb: 3 },
 ];
+
+// Sky-to-sky aspects only — sextiles excluded (supportive background energy,
+// not reflective-journaling material). Natal transit gate is independent.
+const SKY_TO_SKY_ASPECTS = new Set(["conjunction", "opposition", "square", "trine"]);
 
 // ─── Angular helpers ──────────────────────────────────────────────────────────
 
@@ -288,6 +292,7 @@ export function detectAspectWindows(snapshots: DailySnapshot[]): AspectWindow[] 
 
   for (const [p1, p2] of pairs) {
     for (const aspect of ASPECTS) {
+      if (!SKY_TO_SKY_ASPECTS.has(aspect.name)) continue;
       // State for the current open window, if any
       let windowOpen       = false;
       let entryDate!:   Date;
@@ -1176,11 +1181,20 @@ export function detectNatalTransits(
     { name: "natal MC",  longitude: natalChart.mc        },
   ];
 
+  // Gate: only outer/social planets, hard aspects, tight orb — prevents 40–80 card flood
+  const NATAL_TRANSIT_PLANETS = new Set(["Jupiter", "Mars", "Saturn", "Uranus", "Neptune", "Pluto"]);
+  const NATAL_TRANSIT_ASPECTS = new Set(["conjunction", "opposition", "square"]);
+  const NATAL_TRANSIT_MAX_ORB = 3;
+
   const transitingPlanets = (SKY_PLANETS as readonly string[]).filter((p) => p !== "Moon");
 
   for (const planet of transitingPlanets) {
+    if (!NATAL_TRANSIT_PLANETS.has(planet)) continue;
+
     for (const natalPt of natalPoints) {
       for (const aspect of ASPECTS) {
+        if (!NATAL_TRANSIT_ASPECTS.has(aspect.name)) continue;
+
         let windowOpen = false;
         let entryDate!: Date;
         let peakDate!:  Date;
@@ -1204,25 +1218,27 @@ export function detectNatalTransits(
               peakDate = snap.date;
             }
           } else if (!inWindow && windowOpen) {
-            const exitDate = new Date(snap.date);
-            exitDate.setUTCDate(exitDate.getUTCDate() - 1);
-            windows.push({
-              planet1:     planet,
-              planet2:     natalPt.name,
-              aspectName:  aspect.name,
-              aspectAngle: aspect.angle,
-              entryDate,
-              peakDate,
-              exitDate,
-              minOrb:      peakOrb,
-            });
+            if (peakOrb <= NATAL_TRANSIT_MAX_ORB) {
+              const exitDate = new Date(snap.date);
+              exitDate.setUTCDate(exitDate.getUTCDate() - 1);
+              windows.push({
+                planet1:     planet,
+                planet2:     natalPt.name,
+                aspectName:  aspect.name,
+                aspectAngle: aspect.angle,
+                entryDate,
+                peakDate,
+                exitDate,
+                minOrb:      peakOrb,
+              });
+            }
             windowOpen = false;
             peakOrb    = Infinity;
           }
         }
 
         // Close any window still open at end of scan range
-        if (windowOpen) {
+        if (windowOpen && peakOrb <= NATAL_TRANSIT_MAX_ORB) {
           const lastSnap = snapshots[snapshots.length - 1];
           windows.push({
             planet1:     planet,

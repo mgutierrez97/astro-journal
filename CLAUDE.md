@@ -322,6 +322,22 @@ lib/
 }
 ```
 
+### Completed (continued)
+- **Transit generator** (`lib/transitGenerator.ts`) — fully built and wired into feed.
+  Real ephemeris data via Astronomy Engine. `PLACEHOLDER_TRANSITS` removed entirely.
+  `getPlanetLongitude` uses `SunPosition().elon` for Sun, `Ecliptic(GeoVector()).elon`
+  for all others — `EclipticLongitude()` is heliocentric and not used (documented).
+  Two-pass detection: daily scan finds candidate windows, hourly refinement finds exact peak.
+  Detects: sky-to-sky aspects, retrograde stations, sign ingresses, Moon phases + eclipses.
+  Natal transit detection: outer/social planets only (Jupiter, Mars, Saturn, Uranus,
+  Neptune, Pluto), hard aspects only (conjunction, opposition, square), orb ≤ 3°.
+  `SkyEvent` union: `AspectWindow | StationEvent | IngressEvent | MoonPhaseEvent`.
+  `generateTransitsCached()` wraps generation with localStorage cache keyed on date +
+  birth data hash. Invalidates on date change or birth data update. SSR-safe.
+  Feed wired via `useMemo` in `FeedClient.tsx`: generate → filter → score → render.
+- **Transit filter** (`lib/transitFilter.ts`) — calibrated and stable. See scoring
+  model section below for final values.
+
 ### Not yet built
 - Journal (next)
 - Account creation gate / auth
@@ -334,7 +350,15 @@ lib/
 
 ## Where to continue
 
-Journal is next. Build in this order:
+Transit card content refinement is next (new chat instance), then journal.
+
+### Transit card content (current focus)
+Feed is running on real ephemeris data. Next pass: refine what transit cards
+display — content, copy, and information hierarchy within each card and the
+expanded transit detail panel.
+
+### Journal (after transit cards)
+Build in this order:
 1. Journal list page — reverse chronological entries, FAB for freeform entry
 2. Freeform entry — blank editor, date set to today, AI chat within entry
 3. Context entry — spawned from transit/natal detail, carries context header
@@ -389,10 +413,15 @@ Moon                            → 1  (phase events handled separately — see 
 **Aspect weights:**
 ```
 Conjunction, Opposition, Square → 4
-Trine, Sextile                  → 2
+Trine                           → 2
+Sextile                         → suppressed (not detected for sky-to-sky)
 ```
 
-**Orb weights:**
+**Sky-to-sky orb:** 3° (tighter than natal — reduces noise from fast-moving planets)
+
+**Natal transit orb:** 3° (hard aspects only — conjunction, opposition, square)
+
+**Orb weights (scoring):**
 ```
 0–1°  → 3
 1–3°  → 2
@@ -400,25 +429,26 @@ Trine, Sextile                  → 2
 >6°   → 0
 ```
 
-**Natal relevance bonus (requires birth data):**
+**Natal relevance bonus — outer/social planets only:**
 ```
+Applies only when transiting planet is: Jupiter, Mars, Saturn, Uranus, Neptune, Pluto
+Sun, Moon, Mercury, Venus transiting natal points → no bonus (suppressed)
+
 Aspect to natal Sun, Moon, ASC, MC          → +5
 Aspect to natal Saturn, Venus, Mars         → +3
 Aspect to natal Mercury, Jupiter            → +2
 Aspect to natal Uranus, Neptune, Pluto      → +1
 ```
 
-**Angular house bonus (transit falls in 1st, 4th, 7th, 10th):**
+**Display thresholds (final calibrated values):**
 ```
-→ +2
+Score ≥ 14  → "Major" tier   (prominent card, green status dot #3EB489)
+Score 12–13 → "Active" tier  (standard card, amber status dot #C9933A)
+Score < 12  → suppress       (unless special event override)
 ```
 
-**Display thresholds:**
-```
-Score ≥ 14  → "Major" tier   (prominent card, gold status dot)
-Score 8–13  → "Active" tier  (standard card, amber status dot)
-Score < 8   → suppress       (unless special event override)
-```
+Note: Major tier uses green, not gold. Gold (#C8A96E) is reserved exclusively
+for CTAs and interpretive text throughout the design system.
 
 **Special event override — always surface regardless of score:**
 ```
@@ -435,18 +465,21 @@ with strong reflective resonance. They are not the same as noisy Moon transits �
 treat them as first-class feed events. A lunar eclipse conjunct a natal point boosts
 to Major tier regardless of base score.
 
-### Scoring example
+### Scoring examples
 ```
 Saturn square natal Sun (orb 1°):
-  Saturn = 5, Square = 4, Orb tight = 3, Natal Sun = 5, no angular house
+  Saturn = 5, Square = 4, Orb tight = 3, Natal Sun = +5
   Total = 17 → Major tier — SHOW
 
-Moon conjunct Mercury (orb 5°):
-  Moon = 1, Conjunction = 4, Orb wide = 0, Natal Mercury = 2
-  Total = 7 → below threshold — SUPPRESS
+Mars conjunct Pluto (orb 2°, sky-to-sky):
+  Pluto = 5 (max of pair), Conjunction = 4, Orb = 2
+  Total = 11 → below Active floor of 12 — SUPPRESS unless natal activation
 
 Full Moon (special event override):
   → Always surface regardless of score
+
+Venus conjunct Jupiter (orb 2°, sky-to-sky):
+  Score = 9 → SUPPRESS (below threshold, not a special event)
 ```
 
 ---

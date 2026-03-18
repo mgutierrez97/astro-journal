@@ -8,7 +8,7 @@ import GlassPanel from "@/components/ui/GlassPanel";
 import BirthDataCard, { BIRTH_DATA_KEY, type StoredBirthData } from "@/components/ui/BirthDataCard";
 import BottomNav from "@/components/ui/BottomNav";
 import { APP_NAME } from "@/lib/config";
-import { filterTransitsForFeed } from "@/lib/transitFilter";
+import { filterTransitsForFeed, scoreTransit } from "@/lib/transitFilter";
 import { generateTransitsCached } from "@/lib/transitGenerator";
 import { calculateNatalChart, birthDataToDate } from "@/lib/natal";
 
@@ -73,8 +73,15 @@ export default function FeedClient() {
     if (process.env.NODE_ENV !== "development") return;
     if (rawTransits.length === 0) return;
 
+    const skyToSkyCount = rawTransits.filter(
+      (t) => !t.planet.startsWith("natal") && t.targetPlanet && !t.targetPlanet.startsWith("natal"),
+    ).length;
+    const natalCount = rawTransits.filter(
+      (t) => t.planet?.startsWith?.("natal") || t.targetPlanet?.startsWith?.("natal"),
+    ).length;
+
     console.group(
-      `[Feed] Generation complete — ${rawTransits.length} total, ${filteredTransits.length} shown`,
+      `[Feed] Generation complete — ${rawTransits.length} total (${skyToSkyCount} sky-to-sky, ${natalCount} natal), ${filteredTransits.length} shown`,
     );
     console.table(
       filteredTransits.map((st) => ({
@@ -86,6 +93,45 @@ export default function FeedClient() {
         house:   st.transit.house ?? "—",
       })),
     );
+
+    // Target: 5–8 cards visible in feed
+    if (filteredTransits.length > 8) {
+      console.warn(`[Feed] ⚠ Feed over target: ${filteredTransits.length} cards (target 5–8). Full scored list:`);
+      const now    = new Date();
+      const cutoff = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const allScored = rawTransits
+        .filter((t) => t.peakDate >= now && t.peakDate <= cutoff)
+        .map((t) => scoreTransit(t, birthData ?? undefined))
+        .sort((a, b) => b.score - a.score);
+      console.table(allScored.map((st) => ({
+        title:     st.transit.title,
+        score:     st.score,
+        tier:      st.tier,
+        special:   st.isSpecialEvent,
+        peak:      st.transit.peakDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      })));
+    } else {
+      console.log(`[Feed] ✓ Feed card count: ${filteredTransits.length} (within 5–8 target)`);
+    }
+
+    // Verify special events always surface
+    const specialInFeed = filteredTransits.filter((st) => st.isSpecialEvent);
+    const specialInRaw  = rawTransits.filter((t) => {
+      const tt = t.transitType;
+      return tt === "station-retrograde" || tt === "station-direct" ||
+             tt === "eclipse-solar" || tt === "eclipse-lunar" ||
+             tt === "new-moon" || tt === "full-moon";
+    });
+    if (specialInFeed.length < specialInRaw.length) {
+      console.warn(`[Feed] ⚠ ${specialInRaw.length - specialInFeed.length} special event(s) suppressed — check override logic`);
+    } else {
+      console.log(`[Feed] ✓ All ${specialInFeed.length} special events surfaced`);
+    }
+
+    // Dot color verification
+    const majorCards  = filteredTransits.filter((st) => st.tier === "major");
+    const activeCards = filteredTransits.filter((st) => st.tier === "active");
+    console.log(`[Feed] ✓ Dot colors — Major (green): ${majorCards.length}, Active (amber): ${activeCards.length}`);
 
     // Verification checks
     const hasJupiterIngress = rawTransits.some(

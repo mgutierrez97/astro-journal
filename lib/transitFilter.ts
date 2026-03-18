@@ -113,8 +113,10 @@ export function scoreTransit(
 
   let score = planetScore + aspectScore + statusScore;
 
-  // Natal relevance bonus (requires birth data + resolved house)
-  if (birthData && transit.house != null) {
+  // Natal relevance bonus (requires birth data + resolved house + outer/social planet)
+  // Gate to outer/social planets only — prevents personal planets flooding the feed
+  const NATAL_BONUS_PLANETS = new Set(["Jupiter", "Mars", "Saturn", "Uranus", "Neptune", "Pluto"]);
+  if (birthData && transit.house != null && NATAL_BONUS_PLANETS.has(transit.planet)) {
     score += 2; // transit is personalised — touches a natal house
 
     // Angular house amplifier: 1st, 4th, 7th, 10th carry the most personal weight
@@ -124,12 +126,12 @@ export function scoreTransit(
   }
 
   // Tier assignment
-  // Major  ≥ 14 — gold dot
-  // Active 10–13 — amber dot
-  // <10    — suppressed (unless special event override)
+  // Major  ≥ 14 — green dot
+  // Active 12–13 — amber dot
+  // <12    — suppressed (unless special event override)
   let tier: TransitTier =
     score >= 14 ? "major" :
-    score >= 10 ? "active" :
+    score >= 12 ? "active" :
                   "suppressed";
 
   // Special event override — always surfaces, minimum Active tier
