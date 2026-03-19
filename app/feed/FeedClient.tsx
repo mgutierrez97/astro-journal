@@ -337,7 +337,7 @@ export default function FeedClient() {
               <TransitCard
                 key={st.transit.id}
                 event={st.transit}
-                tier={st.tier === "suppressed" ? undefined : st.tier}
+
                 isSpecialEvent={st.isSpecialEvent}
                 active={activeTransitId === st.transit.id}
                 onClick={() => handleCardClick(st.transit.id)}
@@ -424,7 +424,7 @@ export default function FeedClient() {
               <TransitCard
                 key={st.transit.id}
                 event={st.transit}
-                tier={st.tier === "suppressed" ? undefined : st.tier}
+
                 isSpecialEvent={st.isSpecialEvent}
                 active={activeTransitId === st.transit.id}
                 onClick={() => handleCardClick(st.transit.id)}

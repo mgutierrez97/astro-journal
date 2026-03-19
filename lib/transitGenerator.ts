@@ -1143,6 +1143,18 @@ export function skyEventToTransit(
     "lunar-eclipse": "eclipse-lunar",
   };
 
+  // House assignment for lunar phase events (only when birth data is present).
+  // New Moon / Solar Eclipse: the Sun defines the lunation degree — use its longitude.
+  // Full Moon / Lunar Eclipse: Moon's longitude is the illuminated point — use it directly.
+  let mpHouse: number | undefined;
+  if (natalCusps) {
+    const isNewMoonType = mp.type === "new-moon" || mp.type === "solar-eclipse";
+    const phaseLon = isNewMoonType
+      ? getPlanetLongitude("Sun", mp.date)
+      : mp.longitude; // Moon's geocentric ecliptic longitude, stored on detection
+    mpHouse = getHouseFromCusps(phaseLon, natalCusps);
+  }
+
   return {
     id,
     planet:      "Moon",
@@ -1152,6 +1164,7 @@ export function skyEventToTransit(
     title,
     themes,
     status,
+    ...(mpHouse != null ? { house: mpHouse } : {}),
   };
 }
 

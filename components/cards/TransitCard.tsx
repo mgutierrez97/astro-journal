@@ -1,7 +1,7 @@
 "use client";
 
 import GlassPanel from "@/components/ui/GlassPanel";
-import StatusDot from "@/components/ui/StatusDot";
+import { getTransitDescription } from "@/lib/transitCopy";
 
 export interface TransitEvent {
   id: string;
@@ -25,40 +25,62 @@ export interface TransitEvent {
 
 interface TransitCardProps {
   event: TransitEvent;
-  /** Scoring tier — controls status dot colour. Suppressed items are never rendered. */
-  tier?: "major" | "active";
   /** When true, renders a faint gold border-top even in resting state. */
   isSpecialEvent?: boolean;
   active?: boolean;
   onClick?: () => void;
 }
 
-const STATUS_LABELS: Record<TransitEvent["status"], string> = {
-  active:      "active",
-  approaching: "approaching",
-  separating:  "separating",
-};
+// ─── Timing indicator ─────────────────────────────────────────────────────────
+//
+//  0 days  → green dot  + "Today"
+//  1 day   → amber dot  + "Tomorrow"
+//  2–14    → amber dot  + "In X days"
+//  15+     → no dot     + "In X weeks"  (floor, min 2)
+
+const GREEN = "#3EB489";
+const AMBER = "#C9933A";
+const DIM   = "#8B909C";
+
+interface TimingIndicator {
+  dot:   string | null; // hex color, or null for no dot
+  text:  string;
+  color: string;
+}
+
+function daysUntilPeak(peakDate: Date): number {
+  const now     = new Date();
+  const todayMs = Date.UTC(now.getFullYear(),      now.getMonth(),      now.getDate());
+  const peakMs  = Date.UTC(peakDate.getFullYear(), peakDate.getMonth(), peakDate.getDate());
+  return Math.round((peakMs - todayMs) / 86_400_000);
+}
+
+function timingIndicator(peakDate: Date): TimingIndicator {
+  const days = daysUntilPeak(peakDate);
+
+  if (days <= 0)  return { dot: GREEN, text: "Today",           color: GREEN };
+  if (days === 1) return { dot: AMBER, text: "Tomorrow",        color: AMBER };
+  if (days <= 14) return { dot: AMBER, text: `In ${days} days`, color: AMBER };
+
+  const weeks = Math.max(2, Math.floor(days / 7));
+  return { dot: null, text: `In ${weeks} weeks`, color: DIM };
+}
 
 function formatPeakDate(date: Date): string {
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 export default function TransitCard({
   event,
-  tier,
   isSpecialEvent = false,
   active = false,
   onClick,
 }: TransitCardProps) {
-  // Dot colour: major → green (status green, distinct from gold CTAs), active → amber
-  const dotColor: "amber" | "green" =
-    tier === "active" ? "amber" :
-    "green";
+  const timing      = timingIndicator(event.peakDate);
+  const description = getTransitDescription(event, event.house);
 
-  // Special event cards show a faint gold border-top even when not selected
+  // Special event cards show a faint gold border-top even when not selected.
+  // Selected cards get the full gold border-top via GlassPanel's active prop.
   const specialEventStyle: React.CSSProperties =
     isSpecialEvent && !active
       ? { borderTop: "0.5px solid rgba(200,169,110,0.28)" }
@@ -72,92 +94,86 @@ export default function TransitCard({
       tabIndex={0}
       onKeyDown={(e) => e.key === "Enter" && onClick?.()}
       style={{
-        cursor: "pointer",
-        padding: "14px 16px",
-        animation: "cardEnter 380ms ease-out",
+        cursor:     "pointer",
+        padding:    "14px 16px",
+        animation:  "cardEnter 380ms ease-out",
         transition: "border-top-color 380ms ease-out",
         userSelect: "none",
         ...specialEventStyle,
       }}
     >
-      {/* Header row: planet + status */}
+      {/* Row 1 — timing indicator (left) · peak date (right) */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <StatusDot color={dotColor} />
+          {timing.dot && (
+            <span
+              style={{
+                display:         "inline-block",
+                width:           6,
+                height:          6,
+                borderRadius:    "50%",
+                backgroundColor: timing.dot,
+                flexShrink:      0,
+              }}
+            />
+          )}
           <span
             style={{
-              fontSize: 10,
-              fontWeight: 500,
+              fontSize:      10,
+              fontWeight:    500,
               letterSpacing: "0.08em",
               textTransform: "uppercase",
-              color: "#4A5060",
+              color:         timing.color,
             }}
           >
-            {STATUS_LABELS[event.status]}
+            {timing.text}
           </span>
         </div>
-        {event.house && (
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 500,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: "#C8A96E",
-            }}
-          >
-            House {event.house}
-          </span>
-        )}
+        <span style={{ fontSize: 12, color: "#8B909C" }}>
+          Peak {formatPeakDate(event.peakDate)}
+        </span>
       </div>
 
-      {/* Title */}
+      {/* Row 2 — title */}
       <h3
         style={{
-          fontFamily: "EB Garamond, Georgia, serif",
-          fontSize: 17,
-          fontWeight: 400,
-          color: "#E2E4EA",
-          lineHeight: 1.3,
-          marginBottom: 4,
+          fontFamily:   "EB Garamond, Georgia, serif",
+          fontSize:     17,
+          fontWeight:   400,
+          color:        "#E2E4EA",
+          lineHeight:   1.3,
+          marginBottom: 6,
         }}
       >
         {event.title}
       </h3>
 
-      {/* Themes */}
-      {event.themes && (
+      {/* Row 3 — house (conditional, only when birth data present) */}
+      {event.house != null && (
         <p
           style={{
-            fontFamily: "EB Garamond, Georgia, serif",
-            fontSize: 13,
-            fontStyle: "italic",
-            color: "#C8A96E",
-            marginBottom: 8,
-            lineHeight: 1.4,
+            fontSize:     12,
+            color:        "#8B909C",
+            marginBottom: 6,
           }}
         >
-          {event.themes}
+          House {event.house}
         </p>
       )}
 
-      {/* Footer: peak date + aspect */}
-      <div className="flex items-center justify-between">
-        <span style={{ fontSize: 11, color: "#8B909C" }}>
-          Peak {formatPeakDate(event.peakDate)}
-        </span>
-        <span
+      {/* Row 4 — description (conditional) */}
+      {description && (
+        <p
           style={{
-            fontSize: 10,
-            fontWeight: 500,
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            color: "#4A5060",
+            fontSize:   12,
+            color:      "#8B909C",
+            lineHeight: 1.55,
+            margin:     0,
           }}
         >
-          {event.aspect}
-        </span>
-      </div>
+          {description}
+        </p>
+      )}
     </GlassPanel>
   );
 }
