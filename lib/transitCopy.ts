@@ -343,7 +343,7 @@ export function getTransitDescription(
     return `${planet} moves forward again. Integrate what surfaced around ${t}.`;
   }
 
-  // ── New moon / solar eclipse — Sun defines the lunation degree ───────────────
+  // ── New moon family — Sun defines the lunation degree ────────────────────────
   if (transitType === "new-moon" || transitType === "eclipse-solar") {
     const t = theme(signAt("Sun", peakDate));
     if (!t) return null;
@@ -357,8 +357,13 @@ export function getTransitDescription(
     return `A threshold for new intentions. ${cap(t)} shapes what wants to begin.`;
   }
 
-  // ── Full moon / lunar eclipse — Moon is the illuminated point ────────────────
-  if (transitType === "full-moon" || transitType === "eclipse-lunar") {
+  // ── Full moon family — Moon is the illuminated point ─────────────────────────
+  if (
+    transitType === "full-moon"   || transitType === "eclipse-lunar" ||
+    transitType === "blood-moon"  || transitType === "super-moon"    ||
+    transitType === "blue-moon"   || transitType === "harvest-moon"  ||
+    transitType === "super-blue-blood-moon"
+  ) {
     const t = theme(signAt("Moon", peakDate));
     if (!t) return null;
 
@@ -366,6 +371,14 @@ export function getTransitDescription(
     if (transitType === "eclipse-lunar") {
       if (d) return `Deep completion in ${d}. What you've outgrown in ${t} is ready to release.`;
       return `Deep completion. What you've outgrown in ${t} is ready to release.`;
+    }
+    if (transitType === "blood-moon") {
+      if (d) return `Total eclipse in ${d}. What has been building in ${t} is ready to be released.`;
+      return `Total eclipse. What has been building in ${t} is ready to be released.`;
+    }
+    if (transitType === "super-blue-blood-moon") {
+      if (d) return `Three cycles converge in ${d}. What ${t} has been holding is asking to complete.`;
+      return `Three cycles converge. What ${t} has been holding is asking to complete.`;
     }
     if (d) return `Culmination or release in ${d}. What ${t} has been building reaches its peak.`;
     return `Culmination or release. What ${t} has been building reaches its peak.`;

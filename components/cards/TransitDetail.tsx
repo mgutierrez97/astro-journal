@@ -2,6 +2,7 @@
 
 import GlassPanel from "@/components/ui/GlassPanel";
 import { type TransitEvent } from "@/components/cards/TransitCard";
+import { timingIndicator } from "@/lib/timingIndicator";
 
 // Placeholder interpretation copy, keyed by transit type.
 // EB Garamond italic + gold — the "meaning layer" per design spec.
@@ -18,13 +19,13 @@ const INTERPRETATIONS: Record<TransitEvent["transitType"], string> = {
   "eclipse-lunar": "A lunar eclipse brings a full moon to the nodal axis, illuminating what must be released. The emotional reckoning is sharper and more final than an ordinary full moon. Something closes.",
   "new-moon": "The lunation cycle begins again. The conjunction of Sun and Moon is an invitation to set intention before the light returns. What you initiate in the three days following tends to carry through the full cycle.",
   "full-moon": "The Sun and Moon stand opposite one another, illuminating what the new moon seeded. Culmination, revelation, release. Whatever has been building in the intervening two weeks reaches its peak of visibility.",
+  "blood-moon": "A total lunar eclipse. The Moon moves through Earth's shadow and emerges changed. Something completing now carries real weight. What you've been carrying may be ready to set down.",
+  "super-moon": "A Full Moon closer to Earth than usual. What it illuminates feels nearer too. The emotional pull is amplified. Hard to look away.",
+  "blue-moon": "A second Full Moon within the same month. Something that doesn't usually get a second look. An invitation to finish what the first one started.",
+  "harvest-moon": "The Full Moon that rises nearest the autumn equinox. Light that lingers past dark. What has been cultivated through the year is ready to be gathered.",
+  "super-blue-blood-moon": "Three cycles converging at once. Rare, and not accidental. Whatever this moment is asking of you, it has been patient.",
 };
 
-const STATUS_STYLE: Record<TransitEvent["status"], { color: string; label: string }> = {
-  active:      { color: "#3EB489", label: "Active now" },
-  approaching: { color: "#C9933A", label: "Approaching" },
-  separating:  { color: "#8B909C", label: "Separating" },
-};
 
 function formatPeakDate(date: Date): string {
   return date.toLocaleDateString(undefined, {
@@ -42,7 +43,7 @@ interface TransitDetailProps {
 }
 
 export default function TransitDetail({ event, onBack }: TransitDetailProps) {
-  const status = STATUS_STYLE[event.status];
+  const timing = timingIndicator(event.peakDate);
   const interp = INTERPRETATIONS[event.transitType];
 
   return (
@@ -77,27 +78,30 @@ export default function TransitDetail({ event, onBack }: TransitDetailProps) {
       {/* Scrollable body */}
       <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px 28px" }}>
 
-        {/* Status badge */}
+        {/* Timing indicator */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
-          <div
-            style={{
-              width: 5,
-              height: 5,
-              borderRadius: "50%",
-              background: status.color,
-              boxShadow: `0 0 7px ${status.color}`,
-            }}
-          />
+          {timing.dot && (
+            <div
+              style={{
+                width: 5,
+                height: 5,
+                borderRadius: "50%",
+                background: timing.dot,
+                boxShadow: `0 0 7px ${timing.dot}`,
+                flexShrink: 0,
+              }}
+            />
+          )}
           <span
             style={{
               fontSize: 10,
               fontWeight: 500,
               letterSpacing: "0.08em",
               textTransform: "uppercase",
-              color: status.color,
+              color: timing.color,
             }}
           >
-            {status.label}
+            {timing.text}
           </span>
         </div>
 

@@ -578,7 +578,11 @@ export function detectIngresses(snapshots: DailySnapshot[]): IngressEvent[] {
 // ─── Moon phase detection ─────────────────────────────────────────────────────
 
 export interface MoonPhaseEvent {
-  type:         "new-moon" | "full-moon" | "lunar-eclipse" | "solar-eclipse";
+  type:
+    | "new-moon"  | "full-moon"
+    | "lunar-eclipse" | "solar-eclipse"
+    | "blood-moon"    | "super-moon"   | "blue-moon"
+    | "harvest-moon"  | "super-blue-blood-moon";
   date:         Date;
   longitude:    number;    // Moon's geocentric ecliptic longitude at peak
   sign:         ZodiacSign;
@@ -588,23 +592,31 @@ export interface MoonPhaseEvent {
 
 /**
  * Finds all new moons and full moons within [startDate, endDate].
- * Uses astronomy-engine's dedicated phase search (SearchMoonPhase) for
- * precise timing, and the eclipse search functions to identify eclipses.
- * A new moon coinciding with a solar eclipse becomes type "solar-eclipse";
- * a full moon coinciding with a lunar eclipse becomes type "lunar-eclipse".
+ * Classifies full moons by the most specific applicable label:
+ *   Super Blue Blood Moon > Blood Moon > Lunar Eclipse > Super Moon >
+ *   Blue Moon > Harvest Moon > Full Moon
+ * New moons are classified as Solar Eclipse or New Moon.
+ *
+ * Definitions (from CLAUDE.md):
+ *   Blood Moon         — total lunar eclipse (umbral magnitude ≥ 1.0)
+ *   Super Moon         — Full Moon when lunar distance < ~362,000 km
+ *   Blue Moon          — second Full Moon in a calendar month
+ *   Harvest Moon       — Full Moon with peak date closest to autumn equinox
+ *   Super Blue Blood   — super + blue + blood coinciding
  */
 export function detectMoonPhases(startDate: Date, endDate: Date): MoonPhaseEvent[] {
   const events: MoonPhaseEvent[] = [];
   const DAY_MS = 24 * 60 * 60 * 1_000;
 
-  // ── Collect eclipses whose peak falls within the scan range ─────────────────
-  type EclipseRecord = { date: Date; kind: "lunar" | "solar" };
-  const eclipses: EclipseRecord[] = [];
+  // ── 1. Collect eclipse data (with totality info for lunar eclipses) ──────────
+  type LunarEclRec = { date: Date; isTotal: boolean };
+  const lunarEclipses: LunarEclRec[] = [];
+  const solarEclipseDates: Date[]   = [];
 
   try {
     let e = Astronomy.SearchLunarEclipse(Astronomy.MakeTime(startDate));
     while (e.peak.date <= endDate) {
-      eclipses.push({ date: e.peak.date, kind: "lunar" });
+      lunarEclipses.push({ date: e.peak.date, isTotal: e.kind === "total" });
       e = Astronomy.NextLunarEclipse(e.peak);
     }
   } catch { /* no more lunar eclipses in range */ }
@@ -612,49 +624,128 @@ export function detectMoonPhases(startDate: Date, endDate: Date): MoonPhaseEvent
   try {
     let e = Astronomy.SearchGlobalSolarEclipse(Astronomy.MakeTime(startDate));
     while (e.peak.date <= endDate) {
-      eclipses.push({ date: e.peak.date, kind: "solar" });
+      solarEclipseDates.push(e.peak.date);
       e = Astronomy.NextGlobalSolarEclipse(e.peak);
     }
   } catch { /* no more solar eclipses in range */ }
 
-  /** Returns an eclipse record if `date` is within 2 days of a known eclipse. */
-  function matchEclipse(date: Date): EclipseRecord | undefined {
-    return eclipses.find(
+  function matchLunarEcl(date: Date): LunarEclRec | undefined {
+    return lunarEclipses.find(
       (e) => Math.abs(e.date.getTime() - date.getTime()) < 2 * DAY_MS,
     );
   }
+  function matchSolarEcl(date: Date): boolean {
+    return solarEclipseDates.some(
+      (d) => Math.abs(d.getTime() - date.getTime()) < 2 * DAY_MS,
+    );
+  }
 
-  // ── Iterate over a phase angle, collecting all instances in range ────────────
-  function collectPhase(targetLon: 0 | 180, baseType: "new-moon" | "full-moon"): void {
+  // ── 2. Lunar distance helper (Astronomy.GeoMoon returns AU) ─────────────────
+  function getLunarDistanceKm(date: Date): number {
+    const v = Astronomy.GeoMoon(Astronomy.MakeTime(date));
+    const distAU = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    return distAU * 149_597_870.7;
+  }
+
+  // ── 3. Collect all raw moon instances ────────────────────────────────────────
+  interface RawMoon { date: Date; longitude: number; sign: ZodiacSign; }
+  const fullMoons: RawMoon[] = [];
+  const newMoons:  RawMoon[] = [];
+
+  function collectRaw(targetLon: 0 | 180, out: RawMoon[]): void {
     let t = Astronomy.MakeTime(startDate);
     for (;;) {
-      // limitDays = 35 comfortably spans one full lunar cycle (~29.5 days)
       const found = Astronomy.SearchMoonPhase(targetLon, t, 35);
       if (!found || found.date > endDate) break;
-
       const lon      = getPlanetLongitude("Moon", found.date);
       const { sign } = getLongitudeData(lon);
-      const ecl      = matchEclipse(found.date);
-
-      let type: MoonPhaseEvent["type"] = baseType;
-      if (ecl) type = ecl.kind === "lunar" ? "lunar-eclipse" : "solar-eclipse";
-
-      events.push({
-        type,
-        date:      found.date,
-        longitude: lon,
-        sign,
-        isEclipse: !!ecl,
-        ...(ecl ? { eclipseType: ecl.kind } : {}),
-      });
-
-      // Advance ~25 days past this phase to search for the next occurrence
+      out.push({ date: found.date, longitude: lon, sign });
       t = Astronomy.MakeTime(new Date(found.date.getTime() + 25 * DAY_MS));
     }
   }
 
-  collectPhase(0,   "new-moon");
-  collectPhase(180, "full-moon");
+  collectRaw(0,   newMoons);
+  collectRaw(180, fullMoons);
+
+  // ── 4. Blue moon — second Full Moon in any calendar month ────────────────────
+  const blueMoonMs = new Set<number>();
+  {
+    const byMonth: Record<string, RawMoon[]> = {};
+    for (const fm of fullMoons) {
+      const key = `${fm.date.getUTCFullYear()}-${fm.date.getUTCMonth()}`;
+      (byMonth[key] ??= []).push(fm);
+    }
+    for (const moons of Object.values(byMonth)) {
+      if (moons.length >= 2) {
+        for (let i = 1; i < moons.length; i++) {
+          blueMoonMs.add(moons[i].date.getTime());
+        }
+      }
+    }
+  }
+
+  // ── 5. Harvest moon — Full Moon nearest the September equinox ────────────────
+  const harvestMoonMs = new Set<number>();
+  {
+    const startYear = startDate.getUTCFullYear();
+    const endYear   = endDate.getUTCFullYear();
+    for (let y = startYear; y <= endYear; y++) {
+      try {
+        const equinox = Astronomy.Seasons(y).sep_equinox.date;
+        let nearest: RawMoon | null = null;
+        let nearestDiff = Infinity;
+        for (const fm of fullMoons) {
+          const diff = Math.abs(fm.date.getTime() - equinox.getTime());
+          if (diff < nearestDiff) {
+            nearest     = fm;
+            nearestDiff = diff;
+          }
+        }
+        if (nearest) harvestMoonMs.add(nearest.date.getTime());
+      } catch { /* skip */ }
+    }
+  }
+
+  // ── 6. Classify and emit new moon events ─────────────────────────────────────
+  for (const nm of newMoons) {
+    const isSolarEcl = matchSolarEcl(nm.date);
+    events.push({
+      type:      isSolarEcl ? "solar-eclipse" : "new-moon",
+      date:      nm.date,
+      longitude: nm.longitude,
+      sign:      nm.sign,
+      isEclipse: isSolarEcl,
+      ...(isSolarEcl ? { eclipseType: "solar" as const } : {}),
+    });
+  }
+
+  // ── 7. Classify and emit full moon events (precedence: most specific wins) ───
+  for (const fm of fullMoons) {
+    const lunarEcl = matchLunarEcl(fm.date);
+    const isBlood   = lunarEcl?.isTotal ?? false;
+    const isEclipse = !!lunarEcl;
+    const isSuper   = getLunarDistanceKm(fm.date) < 362_000;
+    const isBlue    = blueMoonMs.has(fm.date.getTime());
+    const isHarvest = harvestMoonMs.has(fm.date.getTime());
+
+    let type: MoonPhaseEvent["type"];
+    if      (isBlood && isSuper && isBlue) type = "super-blue-blood-moon";
+    else if (isBlood)                      type = "blood-moon";
+    else if (isEclipse)                    type = "lunar-eclipse";
+    else if (isSuper)                      type = "super-moon";
+    else if (isBlue)                       type = "blue-moon";
+    else if (isHarvest)                    type = "harvest-moon";
+    else                                   type = "full-moon";
+
+    events.push({
+      type,
+      date:      fm.date,
+      longitude: fm.longitude,
+      sign:      fm.sign,
+      isEclipse,
+      ...(isEclipse ? { eclipseType: "lunar" as const } : {}),
+    });
+  }
 
   return events.sort((a, b) => a.date.getTime() - b.date.getTime());
 }
@@ -855,13 +946,18 @@ const PAIR_THEMES: Record<string, string> = {
 };
 
 const SPECIAL_EVENT_THEMES: Record<string, string> = {
-  "station-retrograde": "inward turn · review · revision",
-  "station-direct":     "forward momentum · integration · clarity",
-  "ingress":            "new chapter · shift · atmosphere change",
-  "new-moon":           "initiation · intention · new cycle",
-  "full-moon":          "culmination · revelation · release",
-  "solar-eclipse":      "threshold · new era · irreversible turn",
-  "lunar-eclipse":      "release · reckoning · completion",
+  "station-retrograde":    "inward turn · review · revision",
+  "station-direct":        "forward momentum · integration · clarity",
+  "ingress":               "new chapter · shift · atmosphere change",
+  "new-moon":              "initiation · intention · new cycle",
+  "full-moon":             "culmination · revelation · release",
+  "solar-eclipse":         "threshold · new era · irreversible turn",
+  "lunar-eclipse":         "release · reckoning · completion",
+  "blood-moon":            "total eclipse · shadow · what must be released",
+  "super-moon":            "amplified feeling · proximity · heightened pull",
+  "blue-moon":             "second chance · rare · finishing what started",
+  "harvest-moon":          "gathering · equinox · what has been cultivated",
+  "super-blue-blood-moon": "convergence · rare · threshold · patience",
 };
 
 // Specific sign overrides for moon phases
@@ -913,12 +1009,15 @@ function buildThemes(event: SkyEvent): string | undefined {
       return kw ? `${kw} · ${base}` : base;
     }
 
-    if (type === "new-moon" || type === "full-moon" ||
-        type === "solar-eclipse" || type === "lunar-eclipse") {
+    if (type === "new-moon"   || type === "full-moon"  ||
+        type === "solar-eclipse" || type === "lunar-eclipse" ||
+        type === "blood-moon" || type === "super-moon"   ||
+        type === "blue-moon"  || type === "harvest-moon" ||
+        type === "super-blue-blood-moon") {
       const mp = event as MoonPhaseEvent;
       const signKw = MOON_SIGN_THEMES[mp.sign];
       if (signKw) return signKw;
-      return SPECIAL_EVENT_THEMES[type];
+      return SPECIAL_EVENT_THEMES[type] ?? SPECIAL_EVENT_THEMES["full-moon"];
     }
   }
 
@@ -995,10 +1094,15 @@ function buildTitle(event: SkyEvent): string {
     const type = (event as StationEvent | MoonPhaseEvent).type;
     if (type === "station-retrograde") return `${(event as StationEvent).planet} stations retrograde`;
     if (type === "station-direct")     return `${(event as StationEvent).planet} stations direct`;
-    if (type === "new-moon")           return `New Moon in ${(event as MoonPhaseEvent).sign}`;
-    if (type === "full-moon")          return `Full Moon in ${(event as MoonPhaseEvent).sign}`;
-    if (type === "solar-eclipse")      return `Solar Eclipse in ${(event as MoonPhaseEvent).sign}`;
-    if (type === "lunar-eclipse")      return `Lunar Eclipse in ${(event as MoonPhaseEvent).sign}`;
+    if (type === "new-moon")              return `New Moon in ${(event as MoonPhaseEvent).sign}`;
+    if (type === "full-moon")             return `Full Moon in ${(event as MoonPhaseEvent).sign}`;
+    if (type === "solar-eclipse")         return `Solar Eclipse in ${(event as MoonPhaseEvent).sign}`;
+    if (type === "lunar-eclipse")         return `Lunar Eclipse in ${(event as MoonPhaseEvent).sign}`;
+    if (type === "blood-moon")            return `Blood Moon in ${(event as MoonPhaseEvent).sign}`;
+    if (type === "super-moon")            return `Super Moon in ${(event as MoonPhaseEvent).sign}`;
+    if (type === "blue-moon")             return `Blue Moon in ${(event as MoonPhaseEvent).sign}`;
+    if (type === "harvest-moon")          return `Harvest Moon in ${(event as MoonPhaseEvent).sign}`;
+    if (type === "super-blue-blood-moon") return `Super Blue Blood Moon in ${(event as MoonPhaseEvent).sign}`;
   }
 
   return "Celestial event";
@@ -1013,10 +1117,15 @@ function buildAspectLabel(event: SkyEvent): string {
     const type = (event as StationEvent | MoonPhaseEvent).type;
     if (type === "station-retrograde") return "Station Retrograde";
     if (type === "station-direct")     return "Station Direct";
-    if (type === "new-moon")           return "New Moon";
-    if (type === "full-moon")          return "Full Moon";
-    if (type === "solar-eclipse")      return "Solar Eclipse";
-    if (type === "lunar-eclipse")      return "Lunar Eclipse";
+    if (type === "new-moon")              return "New Moon";
+    if (type === "full-moon")             return "Full Moon";
+    if (type === "solar-eclipse")         return "Solar Eclipse";
+    if (type === "lunar-eclipse")         return "Lunar Eclipse";
+    if (type === "blood-moon")            return "Blood Moon";
+    if (type === "super-moon")            return "Super Moon";
+    if (type === "blue-moon")             return "Blue Moon";
+    if (type === "harvest-moon")          return "Harvest Moon";
+    if (type === "super-blue-blood-moon") return "Super Blue Blood Moon";
   }
 
   return "Event";
@@ -1137,10 +1246,15 @@ export function skyEventToTransit(
   // Map explicitly here.
   const mp = event as MoonPhaseEvent;
   const transitTypeMap: Record<MoonPhaseEvent["type"], TransitEvent["transitType"]> = {
-    "new-moon":      "new-moon",
-    "full-moon":     "full-moon",
-    "solar-eclipse": "eclipse-solar",
-    "lunar-eclipse": "eclipse-lunar",
+    "new-moon":             "new-moon",
+    "full-moon":            "full-moon",
+    "solar-eclipse":        "eclipse-solar",
+    "lunar-eclipse":        "eclipse-lunar",
+    "blood-moon":           "blood-moon",
+    "super-moon":           "super-moon",
+    "blue-moon":            "blue-moon",
+    "harvest-moon":         "harvest-moon",
+    "super-blue-blood-moon": "super-blue-blood-moon",
   };
 
   // House assignment for lunar phase events (only when birth data is present).
@@ -1148,6 +1262,7 @@ export function skyEventToTransit(
   // Full Moon / Lunar Eclipse: Moon's longitude is the illuminated point — use it directly.
   let mpHouse: number | undefined;
   if (natalCusps) {
+    // New-moon family: use Sun longitude. Full-moon family: use Moon longitude.
     const isNewMoonType = mp.type === "new-moon" || mp.type === "solar-eclipse";
     const phaseLon = isNewMoonType
       ? getPlanetLongitude("Sun", mp.date)

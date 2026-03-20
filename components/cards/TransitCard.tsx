@@ -2,6 +2,7 @@
 
 import GlassPanel from "@/components/ui/GlassPanel";
 import { getTransitDescription } from "@/lib/transitCopy";
+import { timingIndicator } from "@/lib/timingIndicator";
 
 export interface TransitEvent {
   id: string;
@@ -13,7 +14,9 @@ export interface TransitEvent {
     | "ingress"
     | "station-retrograde" | "station-direct"
     | "eclipse-solar" | "eclipse-lunar"
-    | "new-moon" | "full-moon";
+    | "new-moon"  | "full-moon"
+    | "blood-moon" | "super-moon" | "blue-moon"
+    | "harvest-moon" | "super-blue-blood-moon";
   peakDate: Date;
   house?: number; // present if birth data available
   /** Short descriptor, e.g. "Mercury enters Aries" */
@@ -37,34 +40,8 @@ interface TransitCardProps {
 //  1 day   → amber dot  + "Tomorrow"
 //  2–14    → amber dot  + "In X days"
 //  15+     → no dot     + "In X weeks"  (floor, min 2)
-
-const GREEN = "#3EB489";
-const AMBER = "#C9933A";
-const DIM   = "#8B909C";
-
-interface TimingIndicator {
-  dot:   string | null; // hex color, or null for no dot
-  text:  string;
-  color: string;
-}
-
-function daysUntilPeak(peakDate: Date): number {
-  const now     = new Date();
-  const todayMs = Date.UTC(now.getFullYear(),      now.getMonth(),      now.getDate());
-  const peakMs  = Date.UTC(peakDate.getFullYear(), peakDate.getMonth(), peakDate.getDate());
-  return Math.round((peakMs - todayMs) / 86_400_000);
-}
-
-function timingIndicator(peakDate: Date): TimingIndicator {
-  const days = daysUntilPeak(peakDate);
-
-  if (days <= 0)  return { dot: GREEN, text: "Today",           color: GREEN };
-  if (days === 1) return { dot: AMBER, text: "Tomorrow",        color: AMBER };
-  if (days <= 14) return { dot: AMBER, text: `In ${days} days`, color: AMBER };
-
-  const weeks = Math.max(2, Math.floor(days / 7));
-  return { dot: null, text: `In ${weeks} weeks`, color: DIM };
-}
+//
+// Logic lives in lib/timingIndicator.ts — imported above.
 
 function formatPeakDate(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });

@@ -46,12 +46,17 @@ const ASPECT_WEIGHT: Partial<Record<TransitEvent["transitType"], number>> = {
   sextile:            1,
   ingress:            2,
   // Special event types carry no base aspect weight — they surface via override
-  "station-retrograde": 0,
-  "station-direct":     0,
-  "eclipse-solar":      0,
-  "eclipse-lunar":      0,
-  "new-moon":           0,
-  "full-moon":          0,
+  "station-retrograde":    0,
+  "station-direct":        0,
+  "eclipse-solar":         0,
+  "eclipse-lunar":         0,
+  "new-moon":              0,
+  "full-moon":             0,
+  "blood-moon":            0,
+  "super-moon":            0,
+  "blue-moon":             0,
+  "harvest-moon":          0,
+  "super-blue-blood-moon": 0,
 };
 
 const STATUS_WEIGHT: Record<TransitEvent["status"], number> = {
@@ -69,26 +74,22 @@ const TIER_1_2 = new Set(["Saturn", "Uranus", "Neptune", "Pluto", "Jupiter", "Ma
 // Special events bypass the score threshold and always surface in the feed.
 // Recognised types:
 //   - Retrograde stations (start and end)
-//   - Solar and lunar eclipses
-//   - New Moons and Full Moons (Harvest/Blood/Super Moon are just labels → Full Moon)
+//   - Solar and lunar eclipses (including all named variants)
+//   - New Moons and Full Moons (all named variants — Blood, Super, Blue, Harvest)
 //   - Sign ingresses for Tier 1 or 2 planets
 
 function detectSpecialEvent(transit: TransitEvent): boolean {
-  const { transitType: tt, planet, title } = transit;
-  const lc = title.toLowerCase();
+  const { transitType: tt, planet } = transit;
 
-  if (tt === "station-retrograde" || tt === "station-direct") return true;
-  if (tt === "eclipse-solar"      || tt === "eclipse-lunar")  return true;
-  if (tt === "new-moon"           || tt === "full-moon")      return true;
-
-  // Title-based fallback (catches "Harvest Moon", "Blood Moon", "Super Moon",
-  // eclipse events described in the title rather than the type field)
-  if (lc.includes("eclipse"))                                 return true;
-  if (lc.includes("new moon") || lc.includes("full moon"))   return true;
-  if (lc.includes("harvest moon") || lc.includes("blood moon") || lc.includes("super moon")) return true;
+  if (tt === "station-retrograde" || tt === "station-direct")   return true;
+  if (tt === "eclipse-solar"      || tt === "eclipse-lunar")    return true;
+  if (tt === "new-moon"           || tt === "full-moon")        return true;
+  if (tt === "blood-moon"         || tt === "super-moon")       return true;
+  if (tt === "blue-moon"          || tt === "harvest-moon")     return true;
+  if (tt === "super-blue-blood-moon")                           return true;
 
   // Sign ingress for Tier 1 or 2 planet
-  if (tt === "ingress" && TIER_1_2.has(planet))               return true;
+  if (tt === "ingress" && TIER_1_2.has(planet))                 return true;
 
   return false;
 }
