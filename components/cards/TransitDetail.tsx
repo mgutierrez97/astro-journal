@@ -430,70 +430,119 @@ function EventIcon({ isCycle }: { isCycle: boolean }) {
 }
 
 /**
- * Calendar strip — 14-cell window centered on the peak date.
- * Peak cell: gold highlight. Orb window (±3 days): medium brightness. Beyond: dimmed.
+ * Calendar grid — two-row (or more) Sun–Sat layout centered on the peak date.
+ *
+ * Grid bounds:
+ *   - First row: the calendar week (Sun–Sat) that contains the orb start (peak − 3)
+ *   - Last row:  the calendar week (Sun–Sat) that contains the orb end   (peak + 3)
+ *   - If the orb window spans more than two weeks a third row is added automatically
+ *
+ * Cell states:
+ *   - Peak:    gold background + gold border + gold text + bold
+ *   - In orb:  faint white background + secondary text
+ *   - Outside: transparent + tertiary (dimmed) text
  */
 function CalendarStrip({ peakDate }: { peakDate: Date }) {
-  // Use UTC to avoid DST / timezone edge cases when computing day offsets
-  const peakMs = Date.UTC(
-    peakDate.getFullYear(),
-    peakDate.getMonth(),
-    peakDate.getDate(),
-  );
+  // All arithmetic in UTC to avoid DST / timezone shift on day boundaries
+  const peakMs  = Date.UTC(peakDate.getFullYear(), peakDate.getMonth(), peakDate.getDate());
   const DAY_MS  = 86_400_000;
   const ORB_DAYS = 3;
 
-  // 14 cells: offset -6 through +7 (peak at position 7, slightly left of center)
-  const cells = Array.from({ length: 14 }, (_, i) => {
-    const offset = i - 6;
-    const d      = new Date(peakMs + offset * DAY_MS);
+  const orbStartMs = peakMs - ORB_DAYS * DAY_MS;
+  const orbEndMs   = peakMs + ORB_DAYS * DAY_MS;
+
+  // Snap to containing Sun–Sat week boundaries
+  const orbStartDow = new Date(orbStartMs).getUTCDay(); // 0 = Sun, 6 = Sat
+  const orbEndDow   = new Date(orbEndMs).getUTCDay();
+  const gridStartMs = orbStartMs - orbStartDow * DAY_MS; // back to Sunday
+  const gridEndMs   = orbEndMs   + (6 - orbEndDow) * DAY_MS; // forward to Saturday
+
+  // Build a flat list of every day in the grid (always a multiple of 7)
+  const totalDays = Math.round((gridEndMs - gridStartMs) / DAY_MS) + 1;
+  const days = Array.from({ length: totalDays }, (_, i) => {
+    const dayMs  = gridStartMs + i * DAY_MS;
+    const offset = Math.round((dayMs - peakMs) / DAY_MS);
     return {
-      offset,
-      dayNum:  d.getUTCDate(),
-      isPeak:  offset === 0,
-      inOrb:   offset !== 0 && Math.abs(offset) <= ORB_DAYS,
+      key:    dayMs,
+      dayNum: new Date(dayMs).getUTCDate(),
+      isPeak: offset === 0,
+      inOrb:  offset !== 0 && Math.abs(offset) <= ORB_DAYS,
     };
   });
 
+  // Day-of-week column headers — S M T W T F S
+  const DOW_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
+
   return (
-    <div
-      style={{
-        display:       "flex",
-        gap:           2,
-        marginBottom:  10,
-      }}
-    >
-      {cells.map(({ offset, dayNum, isPeak, inOrb }) => (
-        <div
-          key={offset}
-          style={{
-            flex:           1,
-            height:         30,
-            display:        "flex",
-            alignItems:     "center",
-            justifyContent: "center",
-            borderRadius:   3,
-            background:     isPeak ? "rgba(200,169,110,0.16)"
-                          : inOrb  ? "rgba(255,255,255,0.05)"
-                          :          "transparent",
-            border:         isPeak ? "0.5px solid rgba(200,169,110,0.45)"
-                          :          "0.5px solid transparent",
-          }}
-        >
-          <span
+    <div style={{ marginBottom: 10 }}>
+
+      {/* Day-of-week header row */}
+      <div
+        style={{
+          display:             "grid",
+          gridTemplateColumns: "repeat(7, 1fr)",
+          gap:                 2,
+          marginBottom:        4,
+        }}
+      >
+        {DOW_LABELS.map((label, i) => (
+          <div key={i} style={{ textAlign: "center" }}>
+            <span
+              style={{
+                fontSize:      9,
+                fontWeight:    500,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color:         "#4A5060",
+                lineHeight:    1,
+              }}
+            >
+              {label}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Day cells — CSS grid, 7 columns, rows auto-generated */}
+      <div
+        style={{
+          display:             "grid",
+          gridTemplateColumns: "repeat(7, 1fr)",
+          gap:                 2,
+        }}
+      >
+        {days.map(({ key, dayNum, isPeak, inOrb }) => (
+          <div
+            key={key}
             style={{
-              fontSize:   9,
-              fontWeight: isPeak ? 600 : 400,
-              color:      isPeak ? "#C8A96E"
-                        : inOrb ? "#8B909C"
-                        :         "#4A5060",
-              lineHeight: 1,
+              height:         28,
+              display:        "flex",
+              alignItems:     "center",
+              justifyContent: "center",
+              borderRadius:   3,
+              background:     isPeak ? "rgba(200,169,110,0.16)"
+                            : inOrb  ? "rgba(255,255,255,0.05)"
+                            :          "transparent",
+              border:         isPeak ? "0.5px solid rgba(200,169,110,0.45)"
+                            :          "0.5px solid transparent",
             }}
           >
-            {dayNum}
-          </span>
-        </div>
-      ))}
+            <span
+              style={{
+                fontSize:   9,
+                fontWeight: isPeak ? 600 : 400,
+                color:      isPeak ? "#C8A96E"
+                          : inOrb  ? "#8B909C"
+                          :          "#4A5060",
+                lineHeight: 1,
+              }}
+            >
+              {dayNum}
+            </span>
+          </div>
+        ))}
+      </div>
+
     </div>
   );
 }
