@@ -695,6 +695,13 @@ export function detectMoonPhases(startDate: Date, endDate: Date): MoonPhaseEvent
         let nearest: RawMoon | null = null;
         let nearestDiff = Infinity;
         for (const fm of fullMoons) {
+          // Harvest Moon must fall in September or October.
+          // The autumn equinox is ~Sep 22–23; the nearest Full Moon is always
+          // within ±14 days — never outside these two months.
+          // Without this guard a short scan window (e.g. April feed) would
+          // erroneously label the only visible Full Moon as Harvest Moon.
+          const fmMonth = fm.date.getUTCMonth(); // 0-indexed: 8 = Sep, 9 = Oct
+          if (fmMonth !== 8 && fmMonth !== 9) continue;
           const diff = Math.abs(fm.date.getTime() - equinox.getTime());
           if (diff < nearestDiff) {
             nearest     = fm;
