@@ -17,31 +17,31 @@ export interface ScoredTransit {
 
 // ─── Weight tables ────────────────────────────────────────────────────────────
 //
-// Planet weights:
-//   Tier 1 (generational outers): Pluto 5, Neptune 5, Uranus 4, Saturn 4
-//   Tier 2 (social):               Jupiter 3, Mars 3
-//   Tier 3 (personal):             Moon 3, Sun 2, Venus 2, Mercury 1
+// Planet weights (source: CLAUDE.md scoring model):
+//   Tier 1 (generational outers): Pluto 5, Neptune 5, Uranus 5, Saturn 5
+//   Tier 2 (social):               Jupiter 4, Mars 3
+//   Tier 3 (personal):             Sun 2, Venus 2, Mercury 1, Moon 1
 //
 // For sky-to-sky transits we use max(planet, targetPlanet) so that e.g.
 // Mercury conjunct Neptune scores as Neptune (5), not Mercury (1).
 
 const PLANET_WEIGHT: Record<string, number> = {
   Sun:     2,
-  Moon:    3,
+  Moon:    1,
   Mercury: 1,
   Venus:   2,
   Mars:    3,
-  Jupiter: 3,
-  Saturn:  4,
-  Uranus:  4,
+  Jupiter: 4,
+  Saturn:  5,
+  Uranus:  5,
   Neptune: 5,
   Pluto:   5,
 };
 
 const ASPECT_WEIGHT: Partial<Record<TransitEvent["transitType"], number>> = {
   conjunction:        4,
-  opposition:         3,
-  square:             3,
+  opposition:         4,
+  square:             4,
   trine:              2,
   sextile:            1,
   ingress:            2,
@@ -114,16 +114,31 @@ export function scoreTransit(
 
   let score = planetScore + aspectScore + statusScore;
 
-  // Natal relevance bonus (requires birth data + resolved house + outer/social planet)
-  // Gate to outer/social planets only — prevents personal planets flooding the feed
+  // Natal relevance bonus — keyed on the natal body being aspected (transit.targetPlanet)
+  // Gate to outer/social transiting planets only — prevents personal planets flooding the feed
+  // Bonus tiers per CLAUDE.md:
+  //   natal Sun / Moon / ASC / MC   → +5
+  //   natal Saturn / Venus / Mars   → +3
+  //   natal Mercury / Jupiter       → +2
+  //   natal Uranus / Neptune / Pluto → +1
   const NATAL_BONUS_PLANETS = new Set(["Jupiter", "Mars", "Saturn", "Uranus", "Neptune", "Pluto"]);
-  if (birthData && transit.house != null && NATAL_BONUS_PLANETS.has(transit.planet)) {
-    score += 2; // transit is personalised — touches a natal house
-
-    // Angular house amplifier: 1st, 4th, 7th, 10th carry the most personal weight
-    if ([1, 4, 7, 10].includes(transit.house)) {
-      score += 3;
-    }
+  const NATAL_TARGET_BONUS: Record<string, number> = {
+    "natal Sun":     5,
+    "natal Moon":    5,
+    "natal ASC":     5,
+    "natal MC":      5,
+    "natal Saturn":  3,
+    "natal Venus":   3,
+    "natal Mars":    3,
+    "natal Mercury": 2,
+    "natal Jupiter": 2,
+    "natal Uranus":  1,
+    "natal Neptune": 1,
+    "natal Pluto":   1,
+  };
+  if (birthData && NATAL_BONUS_PLANETS.has(transit.planet) && transit.targetPlanet) {
+    const bonus = NATAL_TARGET_BONUS[transit.targetPlanet] ?? 0;
+    score += bonus;
   }
 
   // Tier assignment
