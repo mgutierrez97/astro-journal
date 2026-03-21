@@ -510,9 +510,13 @@ through a full voice pass. Rewrite planned when the AI interpretation layer is b
   outer/social planets only, hard aspects only, orb ≤ 3°. Lunar event types expanded:
   Blood Moon, Super Moon, Blue Moon, Harvest Moon (September/October only, nearest
   delta logic), Super Blue Blood Moon. Precedence: most specific wins.
-- **Transit filter** (`lib/transitFilter.ts`) — calibrated and stable. Explicit
+- **lib/transitFilter.ts** — calibrated and stable. Explicit
   transitType checks for all event types — no title-string heuristics. See scoring
-  model section above.
+  model section above. Planet weights, aspect weights, and natal bonus all verified
+  correct against spec: Saturn=5, Uranus=5, Jupiter=4, Moon=1, square=4, opposition=4.
+  Natal bonus rewritten from house-based proxy to natal-planet-based per spec —
+  keyed on which natal body is aspected (+5 Sun/Moon/ASC/MC, +3 Saturn/Venus/Mars,
+  +2 Mercury/Jupiter, +1 outer planets). Do not revert these corrections.
 - **TransitCard.tsx** — rebuilt with new anatomy: timing indicator, peak date top-right,
   title, house below title, description row. Tier/status labels removed entirely.
   Lunar phase events now calculate and display house from Moon/Sun ecliptic longitude
@@ -772,7 +776,8 @@ Retrograde station (any Tier 1–2 planet — start and end)
 Solar eclipse
 Lunar eclipse
 New Moon
-Full Moon (all — Harvest, Super, Blood Moon are metadata labels, not separate types)
+Full Moon (all variants — Super Moon, Blue Moon, Harvest Moon, Blood Moon,
+  Super Blue Blood Moon each surface as distinct named event types, not generic Full Moon)
 Planet ingress into new sign (Tier 1–2 planets)
 ```
 

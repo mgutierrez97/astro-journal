@@ -61,6 +61,32 @@ function formatPeakPassage(date: Date): string {
   return `Peaks ${WEEKDAYS[date.getDay()]}, ${MONTHS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
 }
 
+// ─── Display helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Strips a leading "natal " prefix so body names like "natal Mars" become
+ * "Mars" for display and blurb lookup. The prefix is intentional in titles
+ * but noise everywhere else in the panel.
+ */
+function stripNatal(name: string): string {
+  return name.startsWith("natal ") ? name.slice(6) : name;
+}
+
+/**
+ * Expands abbreviated angle names to their full spellings anywhere they
+ * appear as display text — body labels, titles, etc.
+ *   ASC → Ascendant
+ *   MC  → Midheaven
+ *   DSC → Descendant
+ * IC is left as "IC" (Imum Coeli is obscure; the abbreviation is clearer).
+ */
+function expandAngles(text: string): string {
+  return text
+    .replace(/\bASC\b/g, "Ascendant")
+    .replace(/\bMC\b/g,  "Midheaven")
+    .replace(/\bDSC\b/g, "Descendant");
+}
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface TransitDetailProps {
@@ -158,7 +184,7 @@ export default function TransitDetail({ event, onBack }: TransitDetailProps) {
             letterSpacing: "0.01em",
           }}
         >
-          {event.title}
+          {expandAngles(event.title)}
         </h2>
 
         {/* House — secondary text below title, only when birth data present */}
@@ -197,13 +223,18 @@ export default function TransitDetail({ event, onBack }: TransitDetailProps) {
         <SectionLabel>Bodies</SectionLabel>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16, marginBottom: 28 }}>
-          {bodies.map((bodyName) => (
-            <BodyRow
-              key={bodyName}
-              name={bodyName}
-              blurb={getBodyBlurb(bodyName)}
-            />
-          ))}
+          {bodies.map((bodyName) => {
+            // Strip "natal " prefix and expand abbreviations for display + lookup.
+            // "natal Mars" → "Mars", "natal ASC" → "Ascendant"
+            const displayName = expandAngles(stripNatal(bodyName));
+            return (
+              <BodyRow
+                key={bodyName}
+                name={displayName}
+                blurb={getBodyBlurb(displayName)}
+              />
+            );
+          })}
         </div>
 
         {/* ── ASPECT or CYCLE (mutually exclusive) ───────────────────────────── */}

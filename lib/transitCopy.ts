@@ -295,7 +295,12 @@ export function getTransitDescription(
     // Fallback: sign of the transiting planet at peak.
     const t = theme(signAt(pair.transiting, peakDate));
     if (!t) return null;
-    return `${pair.transiting} ${transitType} your natal ${pair.natal} — ${t} activates this placement.`;
+    // Expand angle abbreviations so the string reads "natal Ascendant" not "natal ASC"
+    const natalDisplay = pair.natal
+      .replace(/\bASC\b/g, "Ascendant")
+      .replace(/\bMC\b/g,  "Midheaven")
+      .replace(/\bDSC\b/g, "Descendant");
+    return `${pair.transiting} ${transitType} your natal ${natalDisplay} — ${t} activates this placement.`;
   }
 
   // ── Sky-to-sky aspect ────────────────────────────────────────────────────────

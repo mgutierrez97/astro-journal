@@ -47,6 +47,14 @@ function formatPeakDate(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+/** Expands abbreviated angle names — ASC → Ascendant, MC → Midheaven, DSC → Descendant. */
+function expandAngles(text: string): string {
+  return text
+    .replace(/\bASC\b/g, "Ascendant")
+    .replace(/\bMC\b/g,  "Midheaven")
+    .replace(/\bDSC\b/g, "Descendant");
+}
+
 export default function TransitCard({
   event,
   isSpecialEvent = false,
@@ -122,7 +130,7 @@ export default function TransitCard({
           marginBottom: 6,
         }}
       >
-        {event.title}
+        {expandAngles(event.title)}
       </h3>
 
       {/* Row 3 — house (conditional, only when birth data present) */}

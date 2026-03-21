@@ -25,6 +25,15 @@ function normalize(key: string): string {
 // ─── Body blurbs ──────────────────────────────────────────────────────────────
 // Locked copy — do not alter. Source: CLAUDE.md § Body blurbs.
 
+const _ASCENDANT_BLURB =
+  "Where you meet the world and the world meets you. The rising sign. The face of the self that forms at the threshold between inner and outer.";
+const _MIDHEAVEN_BLURB =
+  "Where your path becomes visible to others. The point where private becoming meets public life.";
+const _DESCENDANT_BLURB =
+  "Where you encounter the other. What you seek in relationship, and what relationship asks of you in return.";
+const _IC_BLURB =
+  "Where the roots run deepest. The private self, the ancestral ground, what lies beneath everything visible.";
+
 const BODY_BLURB_MAP: Record<string, string> = {
   sun:       "Where your sense of self takes form. The light you move toward and the one you cast.",
   moon:      "Where the body keeps its memory. Instinct, pattern, the self that surfaces before thought.",
@@ -39,6 +48,14 @@ const BODY_BLURB_MAP: Record<string, string> = {
   chiron:    "Where the wound becomes the teacher. The place of greatest tenderness and deepest capacity.",
   northnode: "Where this life is asking you to arrive. The direction that feels unfamiliar and necessary.",
   southnode: "Where you already know the way. What comes without effort — and what may be ready to loosen.",
+  // Angles — canonical spelled-out keys + common abbreviation aliases
+  ascendant: _ASCENDANT_BLURB,
+  asc:       _ASCENDANT_BLURB,
+  midheaven: _MIDHEAVEN_BLURB,
+  mc:        _MIDHEAVEN_BLURB,
+  descendant: _DESCENDANT_BLURB,
+  dsc:       _DESCENDANT_BLURB,
+  ic:        _IC_BLURB,
 };
 
 // ─── Aspect blurbs ────────────────────────────────────────────────────────────
