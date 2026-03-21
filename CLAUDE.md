@@ -486,9 +486,11 @@ through a full voice pass. Rewrite planned when the AI interpretation layer is b
 - **Feed page** — full-bleed SolarSystem background, glass transit cards overlaid on
   left panel (desktop) / bottom scroll (mobile), timing indicators, descriptions,
   real transit data.
-- **Transit detail** — morphs from feed card in place (480ms ease-in-out), shows
-  event info + general interpretation + Reflect CTA. Planet focus animation on
-  background. "Back to feed" ghost button. No page navigation — same surface expands.
+- **Transit detail panel** — fully rebuilt. Morphs from feed card in place (480ms
+  ease-in-out). Anatomy: timing indicator, title, house (if birth data), hook line,
+  BODIES section with body blurbs, ASPECT or CYCLE section (mutually exclusive),
+  PASSAGE calendar strip, INTERPRETATION section (placeholder copy), REFLECT CTA.
+  All static lookup tables implemented in `lib/transitDetail.ts`. Voice audit passed.
 - **You page** — Big 3 summary (Sun/Moon/Rising), planet cards grid Sun–Pluto,
   natal planet detail with Reflect CTA, same layout pattern as Feed.
 - **Natal chart calculations** (`lib/natal.ts`) — accurate Placidus house cusps
@@ -505,8 +507,11 @@ through a full voice pass. Rewrite planned when the AI interpretation layer is b
   Real ephemeris data via Astronomy Engine. Two-pass detection: daily scan finds
   candidate windows, hourly refinement finds exact peak. Detects: sky-to-sky aspects,
   retrograde stations, sign ingresses, Moon phases + eclipses. Natal transit detection:
-  outer/social planets only, hard aspects only, orb ≤ 3°.
-- **Transit filter** (`lib/transitFilter.ts`) — calibrated and stable. See scoring
+  outer/social planets only, hard aspects only, orb ≤ 3°. Lunar event types expanded:
+  Blood Moon, Super Moon, Blue Moon, Harvest Moon (September/October only, nearest
+  delta logic), Super Blue Blood Moon. Precedence: most specific wins.
+- **Transit filter** (`lib/transitFilter.ts`) — calibrated and stable. Explicit
+  transitType checks for all event types — no title-string heuristics. See scoring
   model section above.
 - **TransitCard.tsx** — rebuilt with new anatomy: timing indicator, peak date top-right,
   title, house below title, description row. Tier/status labels removed entirely.
@@ -515,11 +520,14 @@ through a full voice pass. Rewrite planned when the AI interpretation layer is b
 - **lib/transitCopy.ts** — card description lookup. Pre-written planetary pair copy,
   template-driven lunar/station/ingress copy, sky-to-sky pair lookup. No API calls.
   Returns null gracefully for unknown event types.
-- **lib/timingIndicator.ts** — shared utility extracted from TransitCard. Exports
-  `timingIndicator()`, `daysUntilPeak()`, constants and interface. Used by both
-  TransitCard.tsx and TransitDetail.tsx.
-- **TransitDetail.tsx** — timing indicator updated to use shared lib/timingIndicator.ts.
-  Replaced legacy status badge (ACTIVE NOW) with live timing indicator matching feed card.
+- **lib/transitDetail.ts** — static lookup tables for transit detail panel. Three
+  exported functions: `getBodyBlurb()`, `getAspectBlurb()`, `getCycleBlurb()`. All
+  keyed case-insensitively. Alias pattern used for transitType variants (e.g.
+  `stationretrograde` → retrograde blurb). Returns null gracefully for unknown keys.
+- **lib/timingIndicator.ts** — shared utility. Exports `timingIndicator()`,
+  `daysUntilPeak()`, constants and interface. Used by TransitCard.tsx and
+  TransitDetail.tsx. Logic: today=green/Today, 1 day=amber/Tomorrow,
+  2-14=amber/In X days, 15+=no dot/In X weeks.
 
 ### localStorage schema (live)
 ```json
@@ -535,24 +543,29 @@ through a full voice pass. Rewrite planned when the AI interpretation layer is b
 ```
 
 ### Not yet built
-- Transit detail panel — full content and design pass in progress (see below)
+- You page — refinement pass (next)
 - Journal
 - Account creation gate / auth
 - Supabase integration (currently using localStorage)
-- AI interpretation layer (Anthropic API calls)
+- AI interpretation layer (Anthropic API calls) — intentionally last; do not build
+  until auth and schema are stable. The INTERPRETATION section in TransitDetail.tsx
+  currently renders placeholder copy. Do not replace with static hand-written copy —
+  the combination space (bodies × aspect × sign × house) is too large. AI generation
+  is the only correct approach.
 - Settings page
 - Birth data migration from localStorage to Supabase on account creation
+- Planet icon glyphs in BODIES section — currently placeholder circles
+- Hook line visual differentiation from body blurbs — minor, design pass later
 
 ---
 
 ## Where to continue
 
-**Current: Transit detail panel content and design pass.**
+**Next: You page refinement pass.**
 
-The timing indicator has been updated. Now completing the full content and layout
-redesign of the transit detail panel before building the journal.
+Transit detail panel is complete. Begin a new chat session for the You page.
 
-### Agreed transit detail panel anatomy (in progress)
+### Transit detail panel anatomy (complete, locked)
 Working top to bottom:
 
 ```
