@@ -629,10 +629,29 @@ PLUTO        → "Where transformation applies its pressure. What must be releas
 CHIRON       → "Where the wound becomes the teacher. The place of greatest tenderness and deepest capacity."
 NORTH NODE   → "Where this life is asking you to arrive. The direction that feels unfamiliar and necessary."
 SOUTH NODE   → "Where you already know the way. What comes without effort — and what may be ready to loosen."
+ASCENDANT    → "Where you meet the world and the world meets you. The rising sign. The face of the self that forms at the threshold between inner and outer."
+MIDHEAVEN    → "Where your path becomes visible to others. The point where private becoming meets public life."
+DESCENDANT   → "Where you encounter the other. What you seek in relationship, and what relationship asks of you in return."
+IC           → "Where the roots run deepest. The private self, the ancestral ground, what lies beneath everything visible."
 ```
 
 Implement as a static lookup keyed by body name. Return null gracefully for any
 body not in the table — panel omits the blurb row rather than showing a fallback.
+
+**Angle abbreviation expansion:** The following abbreviations must be expanded to
+their full names anywhere they appear in user-facing strings — titles, descriptions,
+body names. Apply via `expandAngles()` utility:
+```
+ASC → Ascendant
+MC  → Midheaven
+DSC → Descendant
+IC  → IC  (kept as-is — "Imum Coeli" is too obscure)
+```
+
+**"natal" prefix handling:** Strip the "natal " prefix from body names before
+display in the BODIES section and before blurb lookup. The prefix belongs in
+transit titles only ("Saturn opposite natal Mars"), not in the BODIES section
+where both bodies are simply described for what they are.
 
 ### Aspect blurbs (locked copy — do not alter)
 
