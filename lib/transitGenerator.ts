@@ -1441,7 +1441,7 @@ export function generateTransits(
 
 // ─── localStorage cache ───────────────────────────────────────────────────────
 
-const TRANSIT_CACHE_KEY = "astro-journal-transits";
+const TRANSIT_CACHE_KEY = "vigil-transits";
 
 interface TransitCacheRecord {
   generatedDate:  string;   // "YYYY-MM-DD" — invalidates after midnight

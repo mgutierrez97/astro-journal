@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import GlassPanel from "@/components/ui/GlassPanel";
 
-export const BIRTH_DATA_KEY = "astro-journal-birth-data";
+export const BIRTH_DATA_KEY = "vigil-birth-data";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

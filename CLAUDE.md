@@ -1,4 +1,4 @@
-# Astro Journal — Project Context
+# Vigil — Project Context
 
 This file is loaded automatically by Claude Code at the start of every session.
 Read it fully before doing anything else.
@@ -712,12 +712,30 @@ same pattern as birth data. Supabase migration comes with auth.
 
 ## Naming
 
-App is currently named "Astro Journal" as a placeholder. Final name not decided.
-Do not hardcode "Astro Journal" anywhere — use a config variable:
+The app is named **Vigil**. This is final and locked. Update the config:
 ```
 // lib/config.ts
-export const APP_NAME = "Astro Journal" // update when name is decided
+export const APP_NAME = "Vigil"
 ```
+
+Do not hardcode "Vigil" anywhere — always reference APP_NAME from lib/config.ts.
+
+---
+
+## Brand & Identity
+
+- **App name:** Vigil (final, locked)
+- **Tagline:** "The sky is a mirror. Write back."
+- **Domain:** vigil.observer
+- **Email:** hello@vigil.observer
+- **Social:** @vigilcodex on TikTok and Instagram
+- **Domain notes:** vigil.watch taken at predatory renewal pricing; vigil.space
+  had $650/yr renewal; vigil.observer secured at $11.98/yr via Namecheap
+- **Positioning:** Premium ritual lifestyle platform. Not a pop astrology app.
+  Comparable ethos to Equinox or Erewhon. The universe as mirror, not oracle.
+- **Target user:** "TikTok transit chaser" — seriously engaged with astrology as
+  self-discovery, currently bouncing between multiple tools to approximate what
+  Vigil does natively.
 
 ---
 

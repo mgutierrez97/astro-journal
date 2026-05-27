@@ -1,0 +1,426 @@
+"use client";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface NatalWheelProps {
+  houses?: {
+    number: number;     // 1–12
+    cuspDegree: number; // ecliptic degree 0–360
+    sign: string;       // e.g. "Sagittarius"
+    domainWord: string; // e.g. "Self"
+  }[];
+  planets?: {
+    name: string;
+    degree: number;        // ecliptic degree 0–360
+    isRetrograde: boolean;
+  }[];
+  aspects?: {
+    bodyA: string;
+    bodyB: string;
+    type: 'conjunction' | 'opposition' | 'square' | 'trine' | 'sextile';
+  }[];
+  activeHouse?: number; // 1–12 — gold highlight on that segment
+  size?: number;        // SVG width/height px, default 360
+}
+
+// ─── Mock data ────────────────────────────────────────────────────────────────
+// Hardcoded for isolated visual testing. Replaced by real Placidus output later.
+
+const mockHouses = [
+  { number: 1,  cuspDegree: 240, sign: "Sagittarius", domainWord: "Self"           },
+  { number: 2,  cuspDegree: 270, sign: "Capricorn",   domainWord: "Worth"          },
+  { number: 3,  cuspDegree: 300, sign: "Aquarius",    domainWord: "Mind"           },
+  { number: 4,  cuspDegree: 330, sign: "Pisces",      domainWord: "Home"           },
+  { number: 5,  cuspDegree: 15,  sign: "Aries",       domainWord: "Creativity"     },
+  { number: 6,  cuspDegree: 50,  sign: "Taurus",      domainWord: "Routines"       },
+  { number: 7,  cuspDegree: 60,  sign: "Gemini",      domainWord: "Relationships"  },
+  { number: 8,  cuspDegree: 90,  sign: "Cancer",      domainWord: "Transformation" },
+  { number: 9,  cuspDegree: 120, sign: "Leo",         domainWord: "Expansion"      },
+  { number: 10, cuspDegree: 150, sign: "Virgo",       domainWord: "Vocation"       },
+  { number: 11, cuspDegree: 180, sign: "Libra",       domainWord: "Community"      },
+  { number: 12, cuspDegree: 210, sign: "Scorpio",     domainWord: "Solitude"       },
+];
+
+const mockPlanets = [
+  { name: "Sun",     degree: 97,  isRetrograde: false },
+  { name: "Moon",    degree: 9,   isRetrograde: false },
+  { name: "Mercury", degree: 90,  isRetrograde: false },
+  { name: "Venus",   degree: 124, isRetrograde: false },
+  { name: "Mars",    degree: 186, isRetrograde: false },
+  { name: "Jupiter", degree: 317, isRetrograde: false },
+  { name: "Saturn",  degree: 11,  isRetrograde: false },
+  { name: "Uranus",  degree: 309, isRetrograde: true  },
+  { name: "Neptune", degree: 299, isRetrograde: true  },
+  { name: "Pluto",   degree: 244, isRetrograde: true  },
+];
+
+const mockAspects = [
+  { bodyA: "Sun",     bodyB: "Saturn",  type: "conjunction" as const },
+  { bodyA: "Moon",    bodyB: "Saturn",  type: "conjunction" as const },
+  { bodyA: "Mars",    bodyB: "Neptune", type: "trine"       as const },
+  { bodyA: "Venus",   bodyB: "Pluto",   type: "opposition"  as const },
+  { bodyA: "Mercury", bodyB: "Mars",    type: "square"      as const },
+  { bodyA: "Jupiter", bodyB: "Uranus",  type: "sextile"     as const },
+];
+
+// ─── Zodiac constants ─────────────────────────────────────────────────────────
+// Signs in ecliptic order, Aries = 0°, each spanning 30°.
+
+const SIGN_NAMES = [
+  "Aries", "Taurus", "Gemini", "Cancer",
+  "Leo", "Virgo", "Libra", "Scorpio",
+  "Sagittarius", "Capricorn", "Aquarius", "Pisces",
+];
+
+// ─── Geometry helpers ─────────────────────────────────────────────────────────
+
+function toRad(deg: number): number {
+  return (deg * Math.PI) / 180;
+}
+
+/**
+ * Convert an ecliptic longitude to an SVG screen angle (degrees).
+ *
+ * Convention:
+ *   - ASC (ascDeg) lands at screen angle 180° = 9 o'clock.
+ *   - Ecliptic degrees increase counterclockwise on the celestial sphere,
+ *     which maps to clockwise on screen when ASC is pinned at 9 o'clock.
+ *   - Formula: screenAngle = 180 − (ecliptic − asc)
+ */
+function eclToScreen(ecliptic: number, asc: number): number {
+  return 180 - (ecliptic - asc);
+}
+
+/** Cartesian (x, y) on a circle of radius r at a given SVG screen angle. */
+function pt(screenDeg: number, r: number, cx: number, cy: number) {
+  const rad = toRad(screenDeg);
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+/**
+ * SVG path for an annular sector spanning startEcl → endEcl (ecliptic degrees).
+ *
+ * Outer arc uses sweep=0 (counterclockwise in SVG, which is clockwise visually
+ * on screen because SVG y-axis is inverted). Inner arc uses sweep=1 to close
+ * the shape back to the start.
+ *
+ * large-arc-flag is 1 only if the ecliptic span exceeds 180° (rare in Placidus).
+ */
+function sectorPath(
+  startEcl: number,
+  endEcl:   number,
+  asc:      number,
+  outerR:   number,
+  innerR:   number,
+  cx:       number,
+  cy:       number,
+): string {
+  // Ecliptic span — always positive
+  let span = endEcl - startEcl;
+  if (span <= 0) span += 360;
+  const largeArc = span > 180 ? 1 : 0;
+
+  const sa = eclToScreen(startEcl, asc); // screen angle at start cusp
+  const ea = eclToScreen(endEcl,   asc); // screen angle at end cusp
+
+  const oA = pt(sa, outerR, cx, cy); // outer arc start
+  const oB = pt(ea, outerR, cx, cy); // outer arc end
+  const iA = pt(sa, innerR, cx, cy); // inner arc start
+  const iB = pt(ea, innerR, cx, cy); // inner arc end
+
+  const f = (n: number) => n.toFixed(3);
+
+  return [
+    `M ${f(oA.x)} ${f(oA.y)}`,
+    `A ${outerR} ${outerR} 0 ${largeArc} 0 ${f(oB.x)} ${f(oB.y)}`, // outer arc, sweep=0
+    `L ${f(iB.x)} ${f(iB.y)}`,
+    `A ${innerR} ${innerR} 0 ${largeArc} 1 ${f(iA.x)} ${f(iA.y)}`, // inner arc, sweep=1
+    "Z",
+  ].join(" ");
+}
+
+
+// ─── Aspect style map ─────────────────────────────────────────────────────────
+
+const ASPECT_STYLES = {
+  conjunction: { stroke: "rgba(200,169,110,0.5)",  strokeWidth: 1,   strokeDasharray: undefined },
+  opposition:  { stroke: "rgba(184,85,85,0.5)",    strokeWidth: 1.5, strokeDasharray: undefined },
+  square:      { stroke: "rgba(201,147,58,0.5)",   strokeWidth: 1,   strokeDasharray: undefined },
+  trine:       { stroke: "rgba(62,180,137,0.4)",   strokeWidth: 1,   strokeDasharray: "4 4"     },
+  sextile:     { stroke: "rgba(139,144,156,0.35)", strokeWidth: 1,   strokeDasharray: "2 4"     },
+} as const;
+
+const ASPECT_LEGEND_ROWS = [
+  { type: "conjunction" as const, label: "Conjunction" },
+  { type: "opposition"  as const, label: "Opposition"  },
+  { type: "square"      as const, label: "Square"      },
+  { type: "trine"       as const, label: "Trine"       },
+  { type: "sextile"     as const, label: "Sextile"     },
+];
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export default function NatalWheel({
+  houses = mockHouses,
+  planets = mockPlanets,
+  aspects = mockAspects,
+  activeHouse,
+  size = 360,
+}: NatalWheelProps) {
+  const cx = size / 2;
+  const cy = size / 2;
+
+  // Radii — proportional to size
+  const outerR      = cx * 0.95; // outer edge of house ring
+  const houseInnerR = cx * 0.72; // inner edge of house ring / outer edge of sign ring
+  const signInnerR  = cx * 0.55; // inner edge of sign ring
+  const centerR     = cx * 0.54; // center circle (slight gap from signInnerR is intentional)
+
+  // Sort by house number to guarantee H1 → H12 ordering
+  const sorted = [...houses].sort((a, b) => a.number - b.number);
+  const asc    = sorted[0]?.cuspDegree ?? 0; // H1 cusp = Ascendant
+
+  // Planet ring radius — midpoint between sign inner edge and center circle
+  const planetBaseR = (signInnerR + centerR) / 2;
+
+  // Pre-compute radial offsets — push a planet outward 8 px if within 12° of an earlier one
+  const activePlanets = planets ?? [];
+  const planetOffsets = activePlanets.map((planet, i) => {
+    for (let j = 0; j < i; j++) {
+      let diff = Math.abs(planet.degree - activePlanets[j].degree);
+      if (diff > 180) diff = 360 - diff;
+      if (diff < 12) return 8;
+    }
+    return 0;
+  });
+
+  // Pre-compute planet dot and label positions — shared by aspect lines and planet dots
+  const planetPositions = activePlanets.map((planet, i) => {
+    const screenAngle = eclToScreen(planet.degree, asc);
+    const r           = planetBaseR + planetOffsets[i];
+    return {
+      dot:       pt(screenAngle, r,      cx, cy),
+      label:     pt(screenAngle, r + 10, cx, cy),
+      labelText: planet.isRetrograde ? `${planet.name} ℞` : planet.name,
+    };
+  });
+
+  // Index by name so aspect lines can look up both endpoints by planet name
+  const planetDotMap = new Map<string, { x: number; y: number }>();
+  activePlanets.forEach((planet, i) => planetDotMap.set(planet.name, planetPositions[i].dot));
+
+  const activeAspects = aspects ?? [];
+
+  /** Ecliptic degree where the next house starts (wraps H12 → H1). */
+  const nextCusp = (i: number) => sorted[(i + 1) % 12].cuspDegree;
+
+  /** Ecliptic angular span of house i (always positive). */
+  const eclSpan = (i: number) => {
+    let span = nextCusp(i) - sorted[i].cuspDegree;
+    if (span <= 0) span += 360;
+    return span;
+  };
+
+  return (
+    <>
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      style={{ display: "block", overflow: "visible" }}
+    >
+      {/* ── Ring 1: Houses ─────────────────────────────────────────────────────
+          12 Placidus segments — unequal spans follow real cusp degrees.
+          ASC (H1) sits at exactly 9 o'clock. Houses run clockwise on screen.
+      ─────────────────────────────────────────────────────────────────────── */}
+      {sorted.map((house, i) => {
+        const startEcl = house.cuspDegree;
+        const endEcl   = nextCusp(i);
+        const span     = eclSpan(i);
+
+        const isActive = activeHouse === house.number;
+        const fill   = isActive ? "rgba(200,169,110,0.15)" : "rgba(255,255,255,0.04)";
+        const stroke = isActive ? "rgba(200,169,110,0.55)" : "rgba(255,255,255,0.08)";
+
+        // Midpoint ecliptic angle for label — normalise to [0, 360)
+        const midEcl           = ((startEcl + span / 2) % 360 + 360) % 360;
+        const midScreen        = eclToScreen(midEcl, asc);
+        const labelR           = (outerR + houseInnerR) / 2;
+        const { x: lx, y: ly } = pt(midScreen, labelR, cx, cy);
+
+        return (
+          <g key={`house-${house.number}`}>
+            <path
+              d={sectorPath(startEcl, endEcl, asc, outerR, houseInnerR, cx, cy)}
+              fill={fill}
+              stroke={stroke}
+              strokeWidth={0.5}
+            />
+            <text
+              x={lx}
+              y={ly}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize={9}
+              fontFamily="system-ui, -apple-system, sans-serif"
+              fill="#8B909C"
+            >
+              {`H${house.number}`}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* ── Ring 2: Signs ──────────────────────────────────────────────────────
+          12 equal 30° segments anchored to the same ecliptic origin as the
+          house ring. Sagittarius (240°) aligns with 9 o'clock for this chart.
+      ─────────────────────────────────────────────────────────────────────── */}
+      {SIGN_NAMES.map((sign, i) => {
+        const startEcl         = i * 30;
+        const midEcl           = startEcl + 15;
+        const midScreen        = eclToScreen(midEcl, asc);
+        const labelR           = (houseInnerR + signInnerR) / 2;
+        const { x: lx, y: ly } = pt(midScreen, labelR, cx, cy);
+
+        return (
+          <g key={`sign-${sign}`}>
+            <path
+              d={sectorPath(startEcl, startEcl + 30, asc, houseInnerR, signInnerR, cx, cy)}
+              fill="rgba(255,255,255,0.02)"
+              stroke="rgba(255,255,255,0.06)"
+              strokeWidth={0.5}
+            />
+            <text
+              x={lx}
+              y={ly}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize={8}
+              fontFamily="system-ui, -apple-system, sans-serif"
+              fill="#4A5060"
+            >
+              {sign}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* ── Center circle ────────────────────────────────────────────────────── */}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={centerR}
+        fill="rgba(255,255,255,0.02)"
+        stroke="rgba(255,255,255,0.06)"
+        strokeWidth={0.5}
+      />
+
+      {/* ── Aspect lines ───────────────────────────────────────────────────────
+          Rendered before planet dots so lines sit behind the glyphs.
+          Each line connects the two planet dot positions looked up by name.
+      ─────────────────────────────────────────────────────────────────────── */}
+      {activeAspects.map((aspect, i) => {
+        const posA = planetDotMap.get(aspect.bodyA);
+        const posB = planetDotMap.get(aspect.bodyB);
+        if (!posA || !posB) return null;
+        const s = ASPECT_STYLES[aspect.type];
+        return (
+          <line
+            key={`aspect-${i}`}
+            x1={posA.x}
+            y1={posA.y}
+            x2={posB.x}
+            y2={posB.y}
+            stroke={s.stroke}
+            strokeWidth={s.strokeWidth}
+            strokeDasharray={s.strokeDasharray}
+          />
+        );
+      })}
+
+      {/* ── Planets ────────────────────────────────────────────────────────────
+          Dots sit in the ring between signInnerR and centerR.
+          Planets within 12° of each other are pushed outward by 8 px.
+      ─────────────────────────────────────────────────────────────────────── */}
+      {activePlanets.map((planet, i) => {
+        const { dot, label, labelText } = planetPositions[i];
+        return (
+          <g key={`planet-${planet.name}`}>
+            <circle
+              cx={dot.x}
+              cy={dot.y}
+              r={3}
+              fill="#E2E4EA"
+            />
+            <text
+              x={label.x}
+              y={label.y}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize={8}
+              fontFamily="system-ui, -apple-system, sans-serif"
+              fill="#E2E4EA"
+            >
+              {labelText}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* ── Outer border — clean cap on outermost radius ────────────────────── */}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={outerR}
+        fill="none"
+        stroke="rgba(255,255,255,0.08)"
+        strokeWidth={0.5}
+      />
+    </svg>
+
+    {/* ── Aspect legend ───────────────────────────────────────────────────────
+        Small key below the wheel — one row per aspect type.
+    ─────────────────────────────────────────────────────────────────────── */}
+    <div
+      style={{
+        marginTop: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        width: size,
+      }}
+    >
+      {ASPECT_LEGEND_ROWS.map(({ type, label }) => {
+        const s = ASPECT_STYLES[type];
+        return (
+          <div
+            key={type}
+            style={{ display: "flex", alignItems: "center", gap: 8 }}
+          >
+            <svg width={40} height={12} style={{ flexShrink: 0, overflow: "visible" }}>
+              <line
+                x1={0}
+                y1={6}
+                x2={40}
+                y2={6}
+                stroke={s.stroke}
+                strokeWidth={s.strokeWidth}
+                strokeDasharray={s.strokeDasharray}
+              />
+            </svg>
+            <span
+              style={{
+                fontSize: 10,
+                fontFamily: "system-ui, -apple-system, sans-serif",
+                color: "#8B909C",
+              }}
+            >
+              {label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+    </>
+  );
+}
