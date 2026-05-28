@@ -19,9 +19,33 @@ interface NatalWheelProps {
     bodyB: string;
     type: 'conjunction' | 'opposition' | 'square' | 'trine' | 'sextile';
   }[];
-  activeHouse?: number; // 1–12 — gold highlight on that segment
-  size?: number;        // SVG width/height px, default 360
+  activeHouse?: number;                   // 1–12 — full gold highlight
+  hoveredHouse?: number;                  // 1–12 — subtle gold hover
+  activeConfigurationPlanets?: string[];  // planet names — full gold
+  hoveredConfigurationPlanets?: string[]; // planet names — dim gold on hover
+  size?: number;                          // SVG width/height px, default 360
 }
+
+// ─── Planet symbol lookup ─────────────────────────────────────────────────────
+
+const PLANET_SYMBOLS: Record<string, string> = {
+  Sun:       "☉",
+  Moon:      "☽",
+  Mercury:   "☿",
+  Venus:     "♀",
+  Mars:      "♂",
+  Jupiter:   "♃",
+  Saturn:    "♄",
+  Uranus:    "♅",
+  Neptune:   "♆",
+  Pluto:     "♇",
+  Chiron:    "⚷",
+  Lilith:    "⚸",
+  Midheaven: "MC",
+  NorthNode: "☊",
+  SouthNode: "☋",
+  Ascendant: "↑",
+};
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 // Hardcoded for isolated visual testing. Replaced by real Placidus output later.
@@ -150,13 +174,6 @@ const ASPECT_STYLES = {
   sextile:     { stroke: "rgba(139,144,156,0.35)", strokeWidth: 1,   strokeDasharray: "2 4"     },
 } as const;
 
-const ASPECT_LEGEND_ROWS = [
-  { type: "conjunction" as const, label: "Conjunction" },
-  { type: "opposition"  as const, label: "Opposition"  },
-  { type: "square"      as const, label: "Square"      },
-  { type: "trine"       as const, label: "Trine"       },
-  { type: "sextile"     as const, label: "Sextile"     },
-];
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -165,6 +182,9 @@ export default function NatalWheel({
   planets = mockPlanets,
   aspects = mockAspects,
   activeHouse,
+  hoveredHouse,
+  activeConfigurationPlanets,
+  hoveredConfigurationPlanets,
   size = 360,
 }: NatalWheelProps) {
   const cx = size / 2;
@@ -180,34 +200,37 @@ export default function NatalWheel({
   const sorted = [...houses].sort((a, b) => a.number - b.number);
   const asc    = sorted[0]?.cuspDegree ?? 0; // H1 cusp = Ascendant
 
-  // Planet ring radius — midpoint between sign inner edge and center circle
-  const planetBaseR = (signInnerR + centerR) / 2;
+  // Planet ring — inside the center circle, clear of sign labels
+  const planetRingR = signInnerR * 0.92;
 
-  // Pre-compute radial offsets — push a planet outward 8 px if within 12° of an earlier one
-  const activePlanets = planets ?? [];
-  const planetOffsets = activePlanets.map((planet, i) => {
-    for (let j = 0; j < i; j++) {
-      let diff = Math.abs(planet.degree - activePlanets[j].degree);
-      if (diff > 180) diff = 360 - diff;
-      if (diff < 12) return 8;
+  // Sort planets by ecliptic degree for deterministic angular spreading
+  const activePlanets = [...(planets ?? [])].sort((a, b) => a.degree - b.degree);
+
+  // Place each planet on planetRingR with minimum 8° angular spacing.
+  // If a planet falls within 8° (screen angle) of the previous placed planet,
+  // it is nudged to prevAngle + 8° instead of its true position.
+  const placedPlanets: { name: string; pos: { x: number; y: number }; sym: string }[] = [];
+  let prevScreenAngle: number | null = null;
+  for (const planet of activePlanets) {
+    const sym = PLANET_SYMBOLS[planet.name] ?? planet.name.slice(0, 2);
+    let screenAngle = eclToScreen(planet.degree, asc);
+    if (prevScreenAngle !== null) {
+      // Compute signed angular difference (screen angles increase clockwise)
+      let diff = screenAngle - prevScreenAngle;
+      // Normalise to (-360, 360) then collapse to nearest equivalent
+      diff = ((diff % 360) + 360) % 360;
+      if (diff > 180) diff -= 360; // now in (-180, 180]
+      if (Math.abs(diff) < 8) {
+        screenAngle = prevScreenAngle + (diff >= 0 ? 8 : -8);
+      }
     }
-    return 0;
-  });
-
-  // Pre-compute planet dot and label positions — shared by aspect lines and planet dots
-  const planetPositions = activePlanets.map((planet, i) => {
-    const screenAngle = eclToScreen(planet.degree, asc);
-    const r           = planetBaseR + planetOffsets[i];
-    return {
-      dot:       pt(screenAngle, r,      cx, cy),
-      label:     pt(screenAngle, r + 10, cx, cy),
-      labelText: planet.isRetrograde ? `${planet.name} ℞` : planet.name,
-    };
-  });
+    prevScreenAngle = screenAngle;
+    placedPlanets.push({ name: planet.name, pos: pt(screenAngle, planetRingR, cx, cy), sym });
+  }
 
   // Index by name so aspect lines can look up both endpoints by planet name
   const planetDotMap = new Map<string, { x: number; y: number }>();
-  activePlanets.forEach((planet, i) => planetDotMap.set(planet.name, planetPositions[i].dot));
+  placedPlanets.forEach((p) => planetDotMap.set(p.name, p.pos));
 
   const activeAspects = aspects ?? [];
 
@@ -222,7 +245,6 @@ export default function NatalWheel({
   };
 
   return (
-    <>
     <svg
       width={size}
       height={size}
@@ -238,9 +260,14 @@ export default function NatalWheel({
         const endEcl   = nextCusp(i);
         const span     = eclSpan(i);
 
-        const isActive = activeHouse === house.number;
-        const fill   = isActive ? "rgba(200,169,110,0.15)" : "rgba(255,255,255,0.04)";
-        const stroke = isActive ? "rgba(200,169,110,0.55)" : "rgba(255,255,255,0.08)";
+        const isActive  = activeHouse === house.number;
+        const isHovered = !isActive && hoveredHouse === house.number;
+        const fill   = isActive  ? "rgba(200,169,110,0.15)"
+                     : isHovered ? "rgba(200,169,110,0.08)"
+                     : "rgba(255,255,255,0.04)";
+        const stroke = isActive  ? "rgba(200,169,110,0.55)"
+                     : isHovered ? "rgba(200,169,110,0.25)"
+                     : "rgba(255,255,255,0.08)";
 
         // Midpoint ecliptic angle for label — normalise to [0, 360)
         const midEcl           = ((startEcl + span / 2) % 360 + 360) % 360;
@@ -339,33 +366,27 @@ export default function NatalWheel({
       })}
 
       {/* ── Planets ────────────────────────────────────────────────────────────
-          Dots sit in the ring between signInnerR and centerR.
-          Planets within 12° of each other are pushed outward by 8 px.
+          Symbol glyphs sit just inside the sign ring.
+          Planets within 12° of an earlier planet are offset 16px toward center.
       ─────────────────────────────────────────────────────────────────────── */}
-      {activePlanets.map((planet, i) => {
-        const { dot, label, labelText } = planetPositions[i];
-        return (
-          <g key={`planet-${planet.name}`}>
-            <circle
-              cx={dot.x}
-              cy={dot.y}
-              r={3}
-              fill="#E2E4EA"
-            />
-            <text
-              x={label.x}
-              y={label.y}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fontSize={8}
-              fontFamily="system-ui, -apple-system, sans-serif"
-              fill="#E2E4EA"
-            >
-              {labelText}
-            </text>
-          </g>
-        );
-      })}
+      {placedPlanets.map((planet) => (
+        <text
+          key={`planet-${planet.name}`}
+          x={planet.pos.x}
+          y={planet.pos.y}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fontSize={11}
+          fontFamily="system-ui, -apple-system, sans-serif"
+          fill={
+            activeConfigurationPlanets?.includes(planet.name)  ? "#C8A96E" :
+            hoveredConfigurationPlanets?.includes(planet.name) ? "rgba(200,169,110,0.6)" :
+            "#E2E4EA"
+          }
+        >
+          {planet.sym}
+        </text>
+      ))}
 
       {/* ── Outer border — clean cap on outermost radius ────────────────────── */}
       <circle
@@ -377,50 +398,5 @@ export default function NatalWheel({
         strokeWidth={0.5}
       />
     </svg>
-
-    {/* ── Aspect legend ───────────────────────────────────────────────────────
-        Small key below the wheel — one row per aspect type.
-    ─────────────────────────────────────────────────────────────────────── */}
-    <div
-      style={{
-        marginTop: 12,
-        display: "flex",
-        flexDirection: "column",
-        gap: 4,
-        width: size,
-      }}
-    >
-      {ASPECT_LEGEND_ROWS.map(({ type, label }) => {
-        const s = ASPECT_STYLES[type];
-        return (
-          <div
-            key={type}
-            style={{ display: "flex", alignItems: "center", gap: 8 }}
-          >
-            <svg width={40} height={12} style={{ flexShrink: 0, overflow: "visible" }}>
-              <line
-                x1={0}
-                y1={6}
-                x2={40}
-                y2={6}
-                stroke={s.stroke}
-                strokeWidth={s.strokeWidth}
-                strokeDasharray={s.strokeDasharray}
-              />
-            </svg>
-            <span
-              style={{
-                fontSize: 10,
-                fontFamily: "system-ui, -apple-system, sans-serif",
-                color: "#8B909C",
-              }}
-            >
-              {label}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-    </>
   );
 }

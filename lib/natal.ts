@@ -235,6 +235,7 @@ const PLANET_BODIES: Array<{ name: string; symbol: string; body: Astronomy.Body 
   { name: "Pluto",   symbol: "♇", body: Astronomy.Body.Pluto },
 ];
 
+
 // ─── Main calculation ─────────────────────────────────────────────────────────
 
 export function calculateNatalChart(
@@ -279,6 +280,44 @@ export function calculateNatalChart(
       console.warn(`Natal chart: failed to compute ${name}:`, e);
     }
   }
+
+  // ── Additional chart points ──────────────────────────────────────────────
+
+  // Julian centuries from J2000.0 — used in mean longitude formulae below
+  const jd = date.getTime() / 86_400_000 + 2_440_587.5;
+  const T  = (jd - 2_451_545.0) / 36_525;
+
+  // Ascendant (AC) — H1 cusp; already computed above
+  planets.push({
+    name: "Ascendant", symbol: "AC", longitude: ascendant,
+    sign: longitudeToSign(ascendant), signDegree: Math.floor(mod360(ascendant) % 30),
+    house: 1, retrograde: false,
+  });
+
+  // Midheaven (MC) — H10 cusp; already computed above
+  planets.push({
+    name: "Midheaven", symbol: "MC", longitude: mc,
+    sign: longitudeToSign(mc), signDegree: Math.floor(mod360(mc) % 30),
+    house: 10, retrograde: false,
+  });
+
+  // Black Moon Lilith (mean apogee): 83.3532 + 40.9 × T — always direct
+  const lilitLon = mod360(83.3532 + 40.9 * T);
+  planets.push({
+    name: "Lilith", symbol: "⚸", longitude: lilitLon,
+    sign: longitudeToSign(lilitLon), signDegree: Math.floor(lilitLon % 30),
+    house: getHouse(lilitLon, cusps), retrograde: false,
+  });
+
+  // Chiron (mean longitude): 209.67 + 50.077 × T
+  // NOTE: accuracy ±5–15° due to Chiron's orbital eccentricity (e ≈ 0.38).
+  // Suitable for display only — not for precise aspect calculation.
+  const chironLon = mod360(209.67 + 50.077 * T);
+  planets.push({
+    name: "Chiron", symbol: "⚷", longitude: chironLon,
+    sign: longitudeToSign(chironLon), signDegree: Math.floor(chironLon % 30),
+    house: getHouse(chironLon, cusps), retrograde: false,
+  });
 
   return {
     planets,
