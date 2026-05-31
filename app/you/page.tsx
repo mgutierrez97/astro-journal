@@ -18,8 +18,22 @@ import {
 import { longitudeToSign } from "@/lib/astronomy";
 import { APP_NAME } from "@/lib/config";
 import { detectConfigurations, type ChartConfiguration } from "@/lib/configurations";
+import { getHouseReading, getPlanetNote, getAspectNote } from "@/lib/houseReadings";
+import { getConfigurationReading, getParticipantNote } from "@/lib/configurationReadings";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+const DEPTH_BODIES = new Set([
+  'Sun', 'Moon', 'Mars', 'Saturn', 'Pluto', 'Chiron', 'Ascendant', 'Midheaven',
+]);
+const HARD_ASPECTS = new Set(['conjunction', 'opposition', 'square']);
+const LUMINARIES   = new Set(['Sun', 'Moon']);
+
+const ASPECT_ANGLE: Record<string, number> = {
+  conjunction: 0,
+  opposition:  180,
+  square:      90,
+};
 
 const HOUSE_DOMAINS: Record<number, string> = {
   1:  "Self",            2:  "Worth",
@@ -28,6 +42,19 @@ const HOUSE_DOMAINS: Record<number, string> = {
   7:  "Relationships",   8:  "Transformation",
   9:  "Expansion",       10: "Vocation",
   11: "Community",       12: "Solitude",
+};
+
+const SIGN_ELEMENT: Record<string, string> = {
+  Aries: "Fire",  Leo: "Fire",  Sagittarius: "Fire",
+  Taurus: "Earth", Virgo: "Earth", Capricorn: "Earth",
+  Gemini: "Air",  Libra: "Air", Aquarius: "Air",
+  Cancer: "Water", Scorpio: "Water", Pisces: "Water",
+};
+
+const SIGN_MODALITY: Record<string, string> = {
+  Aries: "Cardinal", Cancer: "Cardinal", Libra: "Cardinal", Capricorn: "Cardinal",
+  Taurus: "Fixed",   Leo: "Fixed",      Scorpio: "Fixed",   Aquarius: "Fixed",
+  Gemini: "Mutable", Virgo: "Mutable",  Sagittarius: "Mutable", Pisces: "Mutable",
 };
 
 const SECTION_LABEL: React.CSSProperties = {
@@ -229,147 +256,417 @@ function HouseCard({
   );
 }
 
+// ─── AspectLineSwatch ────────────────────────────────────────────────────────
+// Inline SVG swatch that mirrors the exact line style used on the wheel.
+
+function AspectLineSwatch({ type }: { type: "conjunction" | "opposition" | "square" }) {
+  const styles = {
+    conjunction: { stroke: "rgba(255,255,255,0.70)", strokeDasharray: "4 4" },
+    opposition:  { stroke: "#CC4444",                strokeDasharray: undefined },
+    square:      { stroke: "rgba(255,255,255,0.55)", strokeDasharray: undefined },
+  } as const;
+  const s = styles[type];
+  return (
+    <svg
+      width="28"
+      height="12"
+      viewBox="0 0 28 12"
+      style={{ flexShrink: 0, display: "block" }}
+    >
+      <line
+        x1="2" y1="6" x2="26" y2="6"
+        stroke={s.stroke}
+        strokeWidth="1"
+        strokeDasharray={s.strokeDasharray}
+      />
+    </svg>
+  );
+}
+
 // ─── ExpandedDetail ───────────────────────────────────────────────────────────
 
 interface ExpandedDetailProps {
-  houseNum: number;
-  sign:     string;
-  planets:  NatalPlanet[];
-  onBack:   () => void;
+  houseNum:     number;
+  sign:         string;
+  planets:      NatalPlanet[];
+  houseAspects: WheelAspect[];  // pre-filtered by YouPage — do not re-compute
+  onBack:       () => void;
 }
 
-function ExpandedDetail({ houseNum, sign, planets, onBack }: ExpandedDetailProps) {
+function ExpandedDetail({ houseNum, sign, planets, houseAspects, onBack }: ExpandedDetailProps) {
+  const domain  = HOUSE_DOMAINS[houseNum];
+  const reading = getHouseReading(houseNum);
+
   return (
-    <div style={{ padding: "20px 24px" }}>
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        style={{
-          background:  "none",
-          border:      "none",
-          color:       "#8B909C",
-          fontSize:    12,
-          fontFamily:  "system-ui, -apple-system, sans-serif",
-          cursor:      "pointer",
-          padding:     0,
-          marginBottom: 20,
-          display:     "block",
-        }}
-      >
-        ← Houses
-      </button>
+    <div>
 
-      {/* Title */}
-      <div
-        style={{
-          fontFamily:   "EB Garamond, Georgia, serif",
-          fontSize:     22,
-          color:        "#E2E4EA",
-          marginBottom: 4,
-        }}
-      >
-        H{houseNum} · {HOUSE_DOMAINS[houseNum]}
-      </div>
-      <div
-        style={{
-          fontSize:     12,
-          color:        "#8B909C",
-          fontFamily:   "system-ui, -apple-system, sans-serif",
-          marginBottom: 20,
-        }}
-      >
-        {sign} rules this house
-      </div>
+      {/* ── Scrollable content ───────────────────────────────────────────── */}
+      <div style={{ padding: "20px 24px 0" }}>
 
-      {/* Divider */}
-      <div
-        style={{
-          borderBottom: "0.5px solid rgba(255,255,255,0.06)",
-          marginBottom: 20,
-        }}
-      />
-
-      {/* SIGN */}
-      <div style={{ marginBottom: 20 }}>
-        <span style={SECTION_LABEL}>Sign</span>
-        <span
+        {/* Back */}
+        <button
+          onClick={onBack}
           style={{
-            fontSize:   13,
-            color:      "#E2E4EA",
-            fontFamily: "system-ui, -apple-system, sans-serif",
+            background:   "none",
+            border:       "none",
+            color:        "#8B909C",
+            fontSize:     12,
+            fontFamily:   "system-ui, -apple-system, sans-serif",
+            cursor:       "pointer",
+            padding:      0,
+            marginBottom: 20,
+            display:      "block",
           }}
         >
-          {sign}
-        </span>
-      </div>
+          ← Back
+        </button>
 
-      {/* PLANETS */}
-      <div style={{ marginBottom: 20 }}>
-        <span style={SECTION_LABEL}>Planets</span>
-        {planets.length > 0 ? (
-          <span
+        {/* Title */}
+        <div
+          style={{
+            fontFamily:   "EB Garamond, Georgia, serif",
+            fontSize:     22,
+            color:        "#E2E4EA",
+            marginBottom: planets.length > 0 ? 8 : 20,
+          }}
+        >
+          H{houseNum} · {domain}
+        </div>
+
+        {/* Planet chips subtitle */}
+        {planets.length > 0 && (
+          <div
             style={{
-              fontSize:   13,
-              color:      "#E2E4EA",
-              fontFamily: "system-ui, -apple-system, sans-serif",
+              display:      "flex",
+              flexWrap:     "wrap",
+              gap:          8,
+              marginBottom: 20,
             }}
           >
-            {planets.map((p) => p.name).join(" · ")}
-          </span>
-        ) : (
-          <span
+            {planets.map((p) => {
+              const sym = PLANET_SYMBOLS[p.name] ?? p.name.slice(0, 2);
+              return (
+                <span
+                  key={p.name}
+                  style={{
+                    fontSize:   11,
+                    fontFamily: "system-ui, -apple-system, sans-serif",
+                    color:      "#8B909C",
+                  }}
+                >
+                  <span style={{ color: "#C8A96E" }}>{sym}</span>
+                  {" "}{p.name}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Divider */}
+        <div
+          style={{
+            borderBottom: "0.5px solid rgba(255,255,255,0.06)",
+            marginBottom: 24,
+          }}
+        />
+
+        {/* ── READING ────────────────────────────────────────────────────── */}
+        <div style={{ marginBottom: 32 }}>
+          <span style={SECTION_LABEL}>Reading</span>
+          <p
             style={{
-              fontSize:   13,
-              color:      "#4A5060",
+              fontFamily: "EB Garamond, Georgia, serif",
+              fontStyle:  "italic",
+              fontSize:   15,
+              color:      "#C8A96E",
+              margin:     0,
+              marginTop:  8,
+              lineHeight: 1.8,
+            }}
+          >
+            {reading}
+          </p>
+        </div>
+
+        {/* ── BODIES ─────────────────────────────────────────────────────── */}
+        {planets.length === 0 ? (
+          <p
+            style={{
+              fontSize:   12,
               fontFamily: "system-ui, -apple-system, sans-serif",
               fontStyle:  "italic",
+              color:      "#4A5060",
+              margin:     0,
             }}
           >
-            No placements
-          </span>
+            This house is unoccupied. Its sign still shapes the domain.
+          </p>
+        ) : (
+          <div>
+            <span style={SECTION_LABEL}>Bodies</span>
+
+            <div
+              style={{
+                display:       "flex",
+                flexDirection: "column",
+                gap:           28,
+                marginTop:     12,
+              }}
+            >
+              {planets.map((planet) => {
+                const planetSign    = planet.sign ?? sign;
+                const note          = getPlanetNote(planet.name, planetSign, houseNum);
+                const planetAspects = houseAspects.filter(
+                  (a) => a.bodyA === planet.name || a.bodyB === planet.name
+                );
+
+                return (
+                  <div key={planet.name}>
+
+                    {/* [Planet] in [Sign] */}
+                    <div
+                      style={{
+                        fontFamily:   "EB Garamond, Georgia, serif",
+                        fontSize:     16,
+                        color:        "#E2E4EA",
+                        marginBottom: 8,
+                      }}
+                    >
+                      {planet.name} in {planetSign}
+                    </div>
+
+                    {/* Planet note */}
+                    <p
+                      style={{
+                        fontSize:   12,
+                        fontFamily: "system-ui, -apple-system, sans-serif",
+                        color:      "#8B909C",
+                        lineHeight: 1.65,
+                        margin:     0,
+                      }}
+                    >
+                      {note}
+                    </p>
+
+                    {/* Aspect bullets */}
+                    {planetAspects.map((aspect, idx) => {
+                      const other     = aspect.bodyA === planet.name ? aspect.bodyB : aspect.bodyA;
+                      const otherSym  = PLANET_SYMBOLS[other] ?? other.slice(0, 2);
+                      const typeLabel = aspect.type.charAt(0).toUpperCase() + aspect.type.slice(1);
+                      const hardType  = aspect.type as "conjunction" | "opposition" | "square";
+                      const aspectNote = getAspectNote(planet.name, hardType, other);
+
+                      return (
+                        <div key={idx} style={{ marginTop: 16 }}>
+
+                          {/* Swatch + glyph + label row */}
+                          <div
+                            style={{
+                              display:     "flex",
+                              alignItems:  "center",
+                              gap:         6,
+                              marginBottom: 6,
+                            }}
+                          >
+                            <AspectLineSwatch type={hardType} />
+                            <span style={{ color: "#C8A96E", fontSize: 13 }}>
+                              {otherSym}
+                            </span>
+                            <span
+                              style={{
+                                fontSize:      11,
+                                fontFamily:    "system-ui, -apple-system, sans-serif",
+                                letterSpacing: "0.06em",
+                                textTransform: "uppercase",
+                                color:         "#8B909C",
+                              }}
+                            >
+                              {typeLabel} with {other}
+                            </span>
+                          </div>
+
+                          {/* Aspect note */}
+                          <p
+                            style={{
+                              fontSize:   12,
+                              fontFamily: "system-ui, -apple-system, sans-serif",
+                              color:      "#8B909C",
+                              lineHeight: 1.65,
+                              margin:     0,
+                            }}
+                          >
+                            {aspectNote}
+                          </p>
+
+                        </div>
+                      );
+                    })}
+
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
+
+        {/* Spacer — keeps last content clear of the sticky button */}
+        <div style={{ height: 96 }} />
+
       </div>
 
-      {/* INTERPRETATION */}
-      <div style={{ marginBottom: 28 }}>
-        <span style={SECTION_LABEL}>Interpretation</span>
-        <p
-          style={{
-            fontFamily: "EB Garamond, Georgia, serif",
-            fontStyle:  "italic",
-            fontSize:   15,
-            color:      "#C8A96E",
-            margin:     0,
-            lineHeight: 1.6,
-          }}
-        >
-          The interpretation for this house will appear here.
-        </p>
-      </div>
-
-      {/* REFLECT */}
-      <CTAButton
-        variant="primary"
-        style={{ width: "100%" }}
-        onClick={() => console.log("reflect house", houseNum)}
+      {/* ── Sticky Reflect CTA ───────────────────────────────────────────── */}
+      <div
+        style={{
+          position:   "sticky",
+          bottom:     0,
+          padding:    "16px 24px 20px",
+          background: "linear-gradient(to bottom, transparent, rgba(13,17,23,0.97) 24px, rgba(13,17,23,0.97))",
+        }}
       >
-        Reflect
-      </CTAButton>
+        <CTAButton
+          variant="primary"
+          style={{ width: "100%" }}
+          onClick={() => console.log("reflect house", houseNum)}
+        >
+          Reflect
+        </CTAButton>
+      </div>
+
     </div>
   );
 }
 
 // ─── Configuration components ────────────────────────────────────────────────
 
-const CONFIG_PATTERN_DESC: Record<string, string> = {
-  stellium:        "Three or more planets clustered in a single sign, intensifying its themes.",
-  tSquare:         "Two planets in opposition, both squared by a third — a focal point of tension.",
-  grandCross:      "Four planets in two opposing pairs, each squaring the others — a crucible of pressure.",
-  grandTrine:      "Three planets in trine, forming a flowing triangle of ease and natural talent.",
-  kite:            "A grand trine with a fourth planet opposing one vertex, adding direction and drive.",
-  yod:             "Two planets in sextile, each quincunx a third — a fated adjustment point.",
-  mysticRectangle: "Two oppositions linked by trines and sextiles — harmonious tension seeking resolution.",
+// ── Subtitle + grouping helpers ───────────────────────────────────────────────
+
+type Grouping = {
+  planets:   string[];   // 1 or 2 planet names
+  role:      string;     // "apex" | "focal" | "trine" | "opposition" | "sextile" | "conjunction"
+  isPaired:  boolean;
+  titleText: string;     // rendered as EB Garamond 16px subsection title
 };
+
+function configSubtitle(
+  config:         ChartConfiguration,
+  planetSignMap:  Record<string, string>,
+  planetHouseMap: Record<string, number>,
+): string {
+  const { type, planets, focalPlanet } = config;
+  switch (type) {
+    case "tSquare":
+    case "yod":
+      return focalPlanet ? `Focal planet: ${focalPlanet}` : "";
+    case "kite":
+      return `Focal planet: ${planets[planets.length - 1]}`;
+    case "stellium": {
+      const houses = planets
+        .map((p) => planetHouseMap[p])
+        .filter((h): h is number => h !== undefined);
+      const uniqueHouses = new Set(houses);
+      if (uniqueHouses.size === 1) {
+        const h = Array.from(uniqueHouses)[0];
+        return `H${h} ${HOUSE_DOMAINS[h] ?? ""}`;
+      }
+      return planetSignMap[planets[0]] ?? "";
+    }
+    case "grandTrine": {
+      const sign = planetSignMap[planets[0]] ?? "";
+      return `${SIGN_ELEMENT[sign] ?? ""} Trine`;
+    }
+    case "grandCross": {
+      const sign = planetSignMap[planets[0]] ?? "";
+      return `${SIGN_MODALITY[sign] ?? ""} Cross`;
+    }
+    default:
+      return "";
+  }
+}
+
+function configGroupings(
+  config:          ChartConfiguration,
+  planetDegreeMap: Map<string, number>,
+): Grouping[] {
+  const { type, planets, focalPlanet } = config;
+  switch (type) {
+    case "tSquare": {
+      const pair = planets.filter((p) => p !== focalPlanet);
+      return [
+        { planets: pair, role: "opposition", isPaired: true,
+          titleText: `${pair[0]} and ${pair[1]} in opposition` },
+        { planets: [focalPlanet!], role: "apex", isPaired: false,
+          titleText: `${focalPlanet} as apex` },
+      ];
+    }
+    case "yod": {
+      const pair = planets.filter((p) => p !== focalPlanet);
+      return [
+        { planets: pair, role: "sextile", isPaired: true,
+          titleText: `${pair[0]} and ${pair[1]} in sextile` },
+        { planets: [focalPlanet!], role: "focal", isPaired: false,
+          titleText: `${focalPlanet} as focal point` },
+      ];
+    }
+    case "grandTrine":
+      return planets.map((p) => ({
+        planets: [p], role: "trine", isPaired: false,
+        titleText: `${p} in the trine`,
+      }));
+    case "kite": {
+      const outer        = planets[planets.length - 1];
+      const trineMembers = planets.slice(0, planets.length - 1);
+      // Find which trine member the outer planet opposes
+      const outerDeg = planetDegreeMap.get(outer) ?? 0;
+      let opposedIdx = 0;
+      let minDiff    = Infinity;
+      for (let i = 0; i < trineMembers.length; i++) {
+        const mDeg = planetDegreeMap.get(trineMembers[i]) ?? 0;
+        let diff   = Math.abs(outerDeg - mDeg);
+        if (diff > 180) diff = 360 - diff;
+        const d = Math.abs(diff - 180);
+        if (d < minDiff) { minDiff = d; opposedIdx = i; }
+      }
+      const opposedMember = trineMembers[opposedIdx];
+      const result: Grouping[] = trineMembers.map((p) => ({
+        planets: [p], role: "trine", isPaired: false,
+        titleText: `${p} in the trine`,
+      }));
+      result.push({
+        planets: [opposedMember, outer], role: "opposition", isPaired: true,
+        titleText: `${opposedMember} and ${outer} in opposition`,
+      });
+      return result;
+    }
+    case "grandCross": {
+      const opps: Grouping[] = [];
+      const seen = new Set<string>();
+      for (let i = 0; i < planets.length; i++) {
+        for (let j = i + 1; j < planets.length; j++) {
+          const degA = planetDegreeMap.get(planets[i]) ?? 0;
+          const degB = planetDegreeMap.get(planets[j]) ?? 0;
+          let diff   = Math.abs(degA - degB);
+          if (diff > 180) diff = 360 - diff;
+          if (Math.abs(diff - 180) <= 5) {
+            const key = [planets[i], planets[j]].sort().join(",");
+            if (!seen.has(key)) {
+              seen.add(key);
+              opps.push({
+                planets: [planets[i], planets[j]], role: "opposition", isPaired: true,
+                titleText: `${planets[i]} and ${planets[j]} in opposition`,
+              });
+            }
+          }
+        }
+      }
+      return opps;
+    }
+    // stellium and fallback: one subsection per planet, no hierarchy
+    default:
+      return planets.map((p) => ({
+        planets: [p], role: "conjunction", isPaired: false, titleText: p,
+      }));
+  }
+}
 
 interface ConfigurationCardProps {
   config:       ChartConfiguration;
@@ -431,122 +728,163 @@ function ConfigurationCard({ config, isActive, onTap, onMouseEnter, onMouseLeave
 }
 
 interface ConfigurationDetailProps {
-  config: ChartConfiguration;
-  onBack: () => void;
+  config:          ChartConfiguration;
+  planetSignMap:   Record<string, string>;
+  planetHouseMap:  Record<string, number>;
+  planetDegreeMap: Map<string, number>;
+  onBack:          () => void;
 }
 
-function ConfigurationDetail({ config, onBack }: ConfigurationDetailProps) {
-  return (
-    <div style={{ padding: "20px 24px" }}>
-      {/* Back button */}
-      <button
-        onClick={onBack}
-        style={{
-          background:   "none",
-          border:       "none",
-          color:        "#8B909C",
-          fontSize:     12,
-          fontFamily:   "system-ui, -apple-system, sans-serif",
-          cursor:       "pointer",
-          padding:      0,
-          marginBottom: 20,
-          display:      "block",
-        }}
-      >
-        ← Patterns
-      </button>
+function ConfigurationDetail({
+  config, planetSignMap, planetHouseMap, planetDegreeMap, onBack,
+}: ConfigurationDetailProps) {
+  const subtitle  = configSubtitle(config, planetSignMap, planetHouseMap);
+  const reading   = getConfigurationReading(config.type, config.planets, config.focalPlanet);
+  const groupings = configGroupings(config, planetDegreeMap);
 
-      {/* Title */}
-      <div
-        style={{
-          fontFamily:   "EB Garamond, Georgia, serif",
-          fontSize:     22,
-          color:        "#E2E4EA",
-          marginBottom: 4,
-        }}
-      >
-        {config.label}
-      </div>
-      {config.focalPlanet && (
+  return (
+    <div>
+
+      {/* ── Scrollable content ───────────────────────────────────────────── */}
+      <div style={{ padding: "20px 24px 0" }}>
+
+        {/* Back */}
+        <button
+          onClick={onBack}
+          style={{
+            background:   "none",
+            border:       "none",
+            color:        "#8B909C",
+            fontSize:     12,
+            fontFamily:   "system-ui, -apple-system, sans-serif",
+            cursor:       "pointer",
+            padding:      0,
+            marginBottom: 20,
+            display:      "block",
+          }}
+        >
+          ← Back
+        </button>
+
+        {/* Title */}
         <div
           style={{
-            fontSize:     12,
-            color:        "#8B909C",
-            fontFamily:   "system-ui, -apple-system, sans-serif",
-            marginBottom: 4,
+            fontFamily:   "EB Garamond, Georgia, serif",
+            fontSize:     22,
+            color:        "#E2E4EA",
+            marginBottom: subtitle ? 4 : 20,
           }}
         >
-          Focal planet: {config.focalPlanet}
+          {config.label}
         </div>
-      )}
 
-      {/* Divider */}
-      <div style={{ borderBottom: "0.5px solid rgba(255,255,255,0.06)", margin: "16px 0" }} />
+        {/* Subtitle (focal planet / element / modality / house) */}
+        {subtitle && (
+          <div
+            style={{
+              fontSize:     12,
+              color:        "#8B909C",
+              fontFamily:   "system-ui, -apple-system, sans-serif",
+              marginBottom: 20,
+            }}
+          >
+            {subtitle}
+          </div>
+        )}
 
-      {/* PLANETS */}
-      <div style={{ marginBottom: 20 }}>
-        <span style={SECTION_LABEL}>Planets</span>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4 }}>
-          {config.planets.map((name) => {
-            const sym = PLANET_SYMBOLS[name] ?? name.slice(0, 2);
-            return (
-              <span
-                key={name}
-                style={{
-                  fontSize:   13,
-                  fontFamily: "system-ui, -apple-system, sans-serif",
-                  color:      "#E2E4EA",
-                }}
-              >
-                <span style={{ color: "#C8A96E" }}>{sym}</span>{" "}{name}
-              </span>
-            );
-          })}
+        {/* Divider */}
+        <div
+          style={{
+            borderBottom: "0.5px solid rgba(255,255,255,0.06)",
+            marginBottom: 24,
+          }}
+        />
+
+        {/* ── READING ────────────────────────────────────────────────────── */}
+        <div style={{ marginBottom: 32 }}>
+          <span style={SECTION_LABEL}>Reading</span>
+          <p
+            style={{
+              fontFamily: "EB Garamond, Georgia, serif",
+              fontStyle:  "italic",
+              fontSize:   15,
+              color:      "#C8A96E",
+              margin:     0,
+              marginTop:  8,
+              lineHeight: 1.8,
+            }}
+          >
+            {reading}
+          </p>
         </div>
+
+        {/* ── BODIES ─────────────────────────────────────────────────────── */}
+        <div>
+          <span style={SECTION_LABEL}>Bodies</span>
+          <div
+            style={{
+              display:       "flex",
+              flexDirection: "column",
+              gap:           28,
+              marginTop:     12,
+            }}
+          >
+            {groupings.map((group, idx) => {
+              const note = getParticipantNote(group.planets, group.role, config.type);
+              return (
+                <div key={idx}>
+                  {/* Subsection title */}
+                  <div
+                    style={{
+                      fontFamily:   "EB Garamond, Georgia, serif",
+                      fontSize:     16,
+                      color:        "#E2E4EA",
+                      marginBottom: 8,
+                    }}
+                  >
+                    {group.titleText}
+                  </div>
+                  {/* Participant note */}
+                  <p
+                    style={{
+                      fontSize:   12,
+                      fontFamily: "system-ui, -apple-system, sans-serif",
+                      color:      "#8B909C",
+                      lineHeight: 1.65,
+                      margin:     0,
+                    }}
+                  >
+                    {note}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Spacer — keeps last content clear of the sticky button */}
+        <div style={{ height: 96 }} />
+
       </div>
 
-      {/* PATTERN */}
-      <div style={{ marginBottom: 20 }}>
-        <span style={SECTION_LABEL}>Pattern</span>
-        <p
-          style={{
-            fontSize:   13,
-            fontFamily: "system-ui, -apple-system, sans-serif",
-            color:      "#8B909C",
-            margin:     0,
-            marginTop:  4,
-          }}
-        >
-          {CONFIG_PATTERN_DESC[config.type] ?? "A notable planetary configuration."}
-        </p>
-      </div>
-
-      {/* INTERPRETATION */}
-      <div style={{ marginBottom: 28 }}>
-        <span style={SECTION_LABEL}>Interpretation</span>
-        <p
-          style={{
-            fontFamily: "EB Garamond, Georgia, serif",
-            fontStyle:  "italic",
-            fontSize:   15,
-            color:      "#C8A96E",
-            margin:     0,
-            marginTop:  4,
-            lineHeight: 1.6,
-          }}
-        >
-          The interpretation for this pattern will appear here.
-        </p>
-      </div>
-
-      {/* REFLECT */}
-      <CTAButton
-        variant="primary"
-        style={{ width: "100%" }}
-        onClick={() => console.log("reflect config", config.type)}
+      {/* ── Sticky Reflect CTA ───────────────────────────────────────────── */}
+      <div
+        style={{
+          position:   "sticky",
+          bottom:     0,
+          padding:    "16px 24px 20px",
+          background: "linear-gradient(to bottom, transparent, rgba(13,17,23,0.97) 24px, rgba(13,17,23,0.97))",
+        }}
       >
-        Reflect
-      </CTAButton>
+        <CTAButton
+          variant="primary"
+          style={{ width: "100%" }}
+          onClick={() => console.log("reflect config", config.type)}
+        >
+          Reflect
+        </CTAButton>
+      </div>
+
     </div>
   );
 }
@@ -763,22 +1101,52 @@ export default function YouPage() {
     [chart],
   );
 
+  const planetHouseMap = useMemo<Record<string, number>>(() => {
+    const map: Record<string, number> = {}
+    chart?.planets.forEach(p => { if (p.house) map[p.name] = p.house })
+    return map
+  }, [chart]);
+
+  const planetSignMap = useMemo<Record<string, string>>(() => {
+    const map: Record<string, string> = {}
+    chart?.planets.forEach(p => { map[p.name] = p.sign })
+    return map
+  }, [chart]);
+
   const configurationAspects = useMemo(() => {
     if (activeConfiguration) {
       return configToAspects(activeConfiguration, planetDegreeMap)
     }
-    // Show all configuration aspects by default
-    return configurations.flatMap(config =>
-      configToAspects(config, planetDegreeMap)
+    return []
+  }, [activeConfiguration, planetDegreeMap]);
+
+  const houseAspects = useMemo(() => {
+    if (!activeHouse || !wheelPlanets?.length) return []
+    const allAspects = calculateNatalAspects(
+      wheelPlanets.map(p => ({ name: p.name, degree: p.degree }))
     )
-  }, [activeConfiguration, configurations, planetDegreeMap]);
+    const degMap = new Map(wheelPlanets.map(p => [p.name, p.degree]))
+    return allAspects.filter(a => {
+      if (!HARD_ASPECTS.has(a.type)) return false
+      if (!DEPTH_BODIES.has(a.bodyA) && !DEPTH_BODIES.has(a.bodyB)) return false
+      if (planetHouseMap[a.bodyA] !== activeHouse && planetHouseMap[a.bodyB] !== activeHouse) return false
+      if (planetHouseMap[a.bodyA] === planetHouseMap[a.bodyB]) return false
+      // Split orb: luminaries (Sun/Moon) allow 8°, all other bodies 6°
+      const maxOrb = LUMINARIES.has(a.bodyA) || LUMINARIES.has(a.bodyB) ? 8 : 6
+      const degA = degMap.get(a.bodyA) ?? 0
+      const degB = degMap.get(a.bodyB) ?? 0
+      let diff = Math.abs(degA - degB)
+      if (diff > 180) diff = 360 - diff
+      return Math.abs(diff - ASPECT_ANGLE[a.type]) <= maxOrb
+    })
+  }, [activeHouse, wheelPlanets, planetHouseMap]);
 
   // ── Shared JSX blocks ────────────────────────────────────────────────────
 
   const wheelPanelProps: WheelPanelProps = {
     wheelHouses,
     wheelPlanets,
-    configurationAspects,
+    configurationAspects: activeHouse !== undefined ? houseAspects : configurationAspects,
     activeConfigurationPlanets:  activeConfiguration?.planets,
     hoveredConfigurationPlanets: hoveredConfiguration?.planets,
     activeHouse,
@@ -1084,6 +1452,7 @@ export default function YouPage() {
                     houseNum={expanded.n}
                     sign={expanded.sign}
                     planets={expanded.planets}
+                    houseAspects={houseAspects}
                     onBack={handleBack}
                   />
                 )}
@@ -1104,6 +1473,9 @@ export default function YouPage() {
                 {expandedConfiguration && (
                   <ConfigurationDetail
                     config={expandedConfiguration}
+                    planetSignMap={planetSignMap}
+                    planetHouseMap={planetHouseMap}
+                    planetDegreeMap={planetDegreeMap}
                     onBack={() => {
                       setExpandedConfiguration(null);
                       setActiveConfiguration(null);
@@ -1124,6 +1496,9 @@ export default function YouPage() {
               <div style={{ paddingBottom: 88 }}>
                 <ConfigurationDetail
                   config={expandedConfiguration}
+                  planetSignMap={planetSignMap}
+                  planetHouseMap={planetHouseMap}
+                  planetDegreeMap={planetDegreeMap}
                   onBack={() => {
                     setExpandedConfiguration(null);
                     setActiveConfiguration(null);
@@ -1138,6 +1513,7 @@ export default function YouPage() {
                   houseNum={expanded.n}
                   sign={expanded.sign}
                   planets={expanded.planets}
+                  houseAspects={houseAspects}
                   onBack={handleBack}
                 />
               </div>

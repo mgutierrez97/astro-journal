@@ -167,9 +167,9 @@ function sectorPath(
 // ─── Aspect style map ─────────────────────────────────────────────────────────
 
 const ASPECT_STYLES = {
-  conjunction: { stroke: "rgba(200,169,110,0.5)",  strokeWidth: 1,   strokeDasharray: undefined },
-  opposition:  { stroke: "rgba(184,85,85,0.5)",    strokeWidth: 1.5, strokeDasharray: undefined },
-  square:      { stroke: "rgba(201,147,58,0.5)",   strokeWidth: 1,   strokeDasharray: undefined },
+  conjunction: { stroke: "rgba(255,255,255,0.70)", strokeWidth: 1,   strokeDasharray: "4 4"     },
+  opposition:  { stroke: "#CC4444",                strokeWidth: 1,   strokeDasharray: undefined },
+  square:      { stroke: "rgba(255,255,255,0.55)", strokeWidth: 1,   strokeDasharray: undefined },
   trine:       { stroke: "rgba(62,180,137,0.4)",   strokeWidth: 1,   strokeDasharray: "4 4"     },
   sextile:     { stroke: "rgba(139,144,156,0.35)", strokeWidth: 1,   strokeDasharray: "2 4"     },
 } as const;
@@ -206,6 +206,23 @@ export default function NatalWheel({
   // Sort planets by ecliptic degree for deterministic angular spreading
   const activePlanets = [...(planets ?? [])].sort((a, b) => a.degree - b.degree);
 
+  // Planets that fall within the active house's ecliptic range (for gold highlight)
+  const planetsInActiveHouse = new Set<string>();
+  if (activeHouse !== undefined && sorted.length === 12) {
+    const hi = sorted.findIndex((h) => h.number === activeHouse);
+    if (hi >= 0) {
+      const startEcl = sorted[hi].cuspDegree;
+      const endEcl   = sorted[(hi + 1) % 12].cuspDegree;
+      for (const p of activePlanets) {
+        const deg     = ((p.degree % 360) + 360) % 360;
+        const inRange = endEcl > startEcl
+          ? deg >= startEcl && deg < endEcl
+          : deg >= startEcl || deg < endEcl; // wraps through 0°
+        if (inRange) planetsInActiveHouse.add(p.name);
+      }
+    }
+  }
+
   // Place each planet on planetRingR with minimum 8° angular spacing.
   // If a planet falls within 8° (screen angle) of the previous placed planet,
   // it is nudged to prevAngle + 8° instead of its true position.
@@ -233,6 +250,13 @@ export default function NatalWheel({
   placedPlanets.forEach((p) => planetDotMap.set(p.name, p.pos));
 
   const activeAspects = aspects ?? [];
+
+  // Collect planet names that are endpoints of a displayed aspect line
+  const planetsInDisplayedAspects = new Set<string>();
+  for (const aspect of activeAspects) {
+    planetsInDisplayedAspects.add(aspect.bodyA);
+    planetsInDisplayedAspects.add(aspect.bodyB);
+  }
 
   /** Ecliptic degree where the next house starts (wraps H12 → H1). */
   const nextCusp = (i: number) => sorted[(i + 1) % 12].cuspDegree;
@@ -262,10 +286,10 @@ export default function NatalWheel({
 
         const isActive  = activeHouse === house.number;
         const isHovered = !isActive && hoveredHouse === house.number;
-        const fill   = isActive  ? "rgba(200,169,110,0.15)"
+        const fill   = isActive  ? "rgba(200,169,110,0.08)"
                      : isHovered ? "rgba(200,169,110,0.08)"
                      : "rgba(255,255,255,0.04)";
-        const stroke = isActive  ? "rgba(200,169,110,0.55)"
+        const stroke = isActive  ? "rgba(200,169,110,0.40)"
                      : isHovered ? "rgba(200,169,110,0.25)"
                      : "rgba(255,255,255,0.08)";
 
@@ -281,7 +305,7 @@ export default function NatalWheel({
               d={sectorPath(startEcl, endEcl, asc, outerR, houseInnerR, cx, cy)}
               fill={fill}
               stroke={stroke}
-              strokeWidth={0.5}
+              strokeWidth={isActive ? 0.8 : 0.5}
             />
             <text
               x={lx}
@@ -290,7 +314,8 @@ export default function NatalWheel({
               dominantBaseline="middle"
               fontSize={9}
               fontFamily="system-ui, -apple-system, sans-serif"
-              fill="#8B909C"
+              fontWeight={isActive ? "bold" : undefined}
+              fill={isActive ? "#C8A96E" : "#8B909C"}
             >
               {`H${house.number}`}
             </text>
@@ -369,24 +394,31 @@ export default function NatalWheel({
           Symbol glyphs sit just inside the sign ring.
           Planets within 12° of an earlier planet are offset 16px toward center.
       ─────────────────────────────────────────────────────────────────────── */}
-      {placedPlanets.map((planet) => (
-        <text
-          key={`planet-${planet.name}`}
-          x={planet.pos.x}
-          y={planet.pos.y}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fontSize={11}
-          fontFamily="system-ui, -apple-system, sans-serif"
-          fill={
-            activeConfigurationPlanets?.includes(planet.name)  ? "#C8A96E" :
-            hoveredConfigurationPlanets?.includes(planet.name) ? "rgba(200,169,110,0.6)" :
-            "#E2E4EA"
-          }
-        >
-          {planet.sym}
-        </text>
-      ))}
+      {placedPlanets.map((planet) => {
+        const inHouse   = planetsInActiveHouse.has(planet.name);
+        const inAspect  = planetsInDisplayedAspects.has(planet.name);
+        const dimmed    = activeHouse !== undefined && !inHouse && !inAspect;
+        return (
+          <text
+            key={`planet-${planet.name}`}
+            x={planet.pos.x}
+            y={planet.pos.y}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize={11}
+            fontFamily="system-ui, -apple-system, sans-serif"
+            opacity={dimmed ? 0.15 : 1}
+            fill={
+              activeConfigurationPlanets?.includes(planet.name)  ? "#C8A96E" :
+              inHouse                                             ? "#C8A96E" :
+              hoveredConfigurationPlanets?.includes(planet.name) ? "rgba(200,169,110,0.6)" :
+              "#E2E4EA"
+            }
+          >
+            {planet.sym}
+          </text>
+        );
+      })}
 
       {/* ── Outer border — clean cap on outermost radius ────────────────────── */}
       <circle
