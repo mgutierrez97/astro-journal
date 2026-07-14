@@ -2,12 +2,21 @@
 
 import { type TransitEvent } from "@/components/cards/TransitCard";
 import { timingIndicator }    from "@/lib/timingIndicator";
-import { getTransitDescription } from "@/lib/transitCopy";
+
 import {
   getBodyBlurb,
   getAspectBlurb,
   getCycleBlurb,
 } from "@/lib/transitDetail";
+
+// ─── House domains ────────────────────────────────────────────────────────────
+
+const HOUSE_DOMAINS: Record<number, string> = {
+  1:  "Self",          2:  "Worth",          3:  "Mind",
+  4:  "Home",          5:  "Creativity",     6:  "Routines",
+  7:  "Relationships", 8:  "Transformation", 9:  "Expansion",
+  10: "Vocation",      11: "Community",      12: "Solitude",
+};
 
 // ─── Interpretation copy (meaning layer — EB Garamond italic gold) ────────────
 // Placeholder text written in the correct register.
@@ -100,7 +109,7 @@ export default function TransitDetail({ event, onBack }: TransitDetailProps) {
   const timing      = timingIndicator(event.peakDate);
   const interp      = INTERPRETATIONS[event.transitType];
   const isCycle     = CYCLE_TYPES.has(event.transitType);
-  const description = getTransitDescription(event, event.house);
+
 
   // Bodies to show — primary planet always; target planet when present
   const bodies: string[] = [event.planet];
@@ -198,24 +207,33 @@ export default function TransitDetail({ event, onBack }: TransitDetailProps) {
               marginBottom:  6,
             }}
           >
-            House {event.house}
+            H{event.house}: {HOUSE_DOMAINS[event.house!] ?? ""}
           </div>
         )}
 
-        {/* Hook line — card description in data layer register */}
-        {description ? (
-          <p
-            style={{
-              fontSize:   12,
-              color:      "#8B909C",
-              margin:     "0 0 28px",
-              lineHeight: 1.55,
-            }}
-          >
-            {description}
-          </p>
-        ) : (
-          <div style={{ marginBottom: 28 }} />
+
+
+        {/* ── READING — only when birth data present ──────────────────────────── */}
+
+        {event.house != null && (
+          <>
+            <SectionLabel>Reading</SectionLabel>
+
+            <div style={{ marginBottom: 28 }}>
+              <p
+                style={{
+                  fontFamily: "EB Garamond, Georgia, serif",
+                  fontStyle:  "italic",
+                  fontSize:   16,
+                  color:      "#C8A96E",
+                  lineHeight: 1.7,
+                  margin:     0,
+                }}
+              >
+                {interp}
+              </p>
+            </div>
+          </>
         )}
 
         {/* ── BODIES ─────────────────────────────────────────────────────────── */}
@@ -297,52 +315,80 @@ export default function TransitDetail({ event, onBack }: TransitDetailProps) {
           </p>
         </div>
 
-        {/* ── INTERPRETATION ─────────────────────────────────────────────────── */}
+        {/* ── REFLECT / ENTER YOUR ORIGIN — conditional on birth data ───────── */}
 
-        <SectionLabel>Interpretation</SectionLabel>
-
-        <div style={{ marginBottom: 28 }}>
-          <p
+        {event.house != null ? (
+          <button
             style={{
-              fontFamily: "EB Garamond, Georgia, serif",
-              fontStyle:  "italic",
-              fontSize:   16,
-              color:      "#C8A96E",
-              lineHeight: 1.7,
-              margin:     0,
+              width:         "100%",
+              padding:       "13px 20px",
+              background:    "rgba(200,169,110,0.10)",
+              border:        "0.5px solid #C8A96E",
+              borderTop:     "0.5px solid rgba(255,220,160,0.55)",
+              borderRadius:  7,
+              color:         "#E8D8A8",
+              fontSize:      12,
+              fontWeight:    500,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              cursor:        "pointer",
+              transition:    "background 280ms ease-out",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = "rgba(200,169,110,0.18)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.background = "rgba(200,169,110,0.10)";
             }}
           >
-            {interp}
-          </p>
-        </div>
-
-        {/* ── REFLECT CTA — primary gold, unchanged ──────────────────────────── */}
-
-        <button
-          style={{
-            width:         "100%",
-            padding:       "13px 20px",
-            background:    "rgba(200,169,110,0.10)",
-            border:        "0.5px solid #C8A96E",
-            borderTop:     "0.5px solid rgba(255,220,160,0.55)",
-            borderRadius:  7,
-            color:         "#E8D8A8",
-            fontSize:      12,
-            fontWeight:    500,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            cursor:        "pointer",
-            transition:    "background 280ms ease-out",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "rgba(200,169,110,0.18)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background = "rgba(200,169,110,0.10)";
-          }}
-        >
-          Reflect on this transit
-        </button>
+            Reflect on this transit
+          </button>
+        ) : (
+          <div>
+            <p
+              style={{
+                fontFamily: "EB Garamond, Georgia, serif",
+                fontStyle:  "italic",
+                fontSize:   16,
+                color:      "#C8A96E",
+                lineHeight: 1.7,
+                margin:     "0 0 16px",
+              }}
+            >
+              This transit has more to say. It needs your origin to say it.
+            </p>
+            <button
+              onClick={() => {
+                onBack();
+                window.dispatchEvent(new Event("vigil-open-birth-input"));
+              }}
+              style={{
+                width:         "100%",
+                padding:       "13px 20px",
+                background:    "none",
+                border:        "0.5px solid rgba(255,255,255,0.15)",
+                borderRadius:  7,
+                color:         "#8B909C",
+                fontSize:      12,
+                fontWeight:    500,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                cursor:        "pointer",
+                transition:    "border-color 280ms ease-out, color 280ms ease-out",
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.30)";
+                (e.currentTarget as HTMLElement).style.color = "#E2E4EA";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.15)";
+                (e.currentTarget as HTMLElement).style.color = "#8B909C";
+              }}
+            >
+              Enter your origin
+            </button>
+          </div>
+        )}
 
       </div>
     </div>

@@ -133,6 +133,8 @@ export default function BirthDataCard() {
   const expandRef      = useRef<HTMLDivElement>(null);
   const cityInputRef   = useRef<HTMLInputElement>(null);
   const cityDebounce   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stable ref so the event listener below always calls the latest handleOpen closure
+  const handleOpenRef  = useRef<() => void>(() => {});
 
   // ─── Storage sync ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -144,6 +146,15 @@ export default function BirthDataCard() {
     setMounted(true);
     window.addEventListener("birth-data-updated", readStorage);
     return () => window.removeEventListener("birth-data-updated", readStorage);
+  }, []);
+
+  // "ENTER YOUR ORIGIN" CTA in TransitDetail dispatches this event.
+  // handleOpenRef.current is updated on every render so the listener always
+  // calls the latest handleOpen — no stale-closure risk.
+  useEffect(() => {
+    const listener = () => handleOpenRef.current();
+    window.addEventListener("vigil-open-birth-input", listener);
+    return () => window.removeEventListener("vigil-open-birth-input", listener);
   }, []);
 
   if (!mounted) return null;
@@ -179,6 +190,9 @@ export default function BirthDataCard() {
     }
     setEditing(true);
   };
+  // Keep the ref current so the event listener registered at mount always
+  // calls the handleOpen that captures the latest storedData.
+  handleOpenRef.current = handleOpen;
 
   const handleClose = () => {
     setEditing(false);

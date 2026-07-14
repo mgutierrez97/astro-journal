@@ -14,7 +14,7 @@ layer powered by the Anthropic API (Claude).
 The core insight: the interpretive value of an astrological transit is proportional
 to how much personal context surrounds it. Generic horoscopes are everywhere. A tool
 that combines real-time ephemeris data, personal natal chart calculation, and
-AI-generated interpretation grounded in the user's own journal history — in one
+AI-generated interpretation grounded in the user's own natal chart — in one
 place — does not exist.
 
 This is not a fortune-telling app. The positioning is the universe as mirror, not
@@ -31,6 +31,47 @@ about the practice.
 - **Deployment:** Vercel
 - **AI:** Anthropic API (Claude) — called directly, no self-hosted model
 - **Ephemeris:** Astronomy Engine (JS library for planet position calculations)
+
+---
+
+## Developer commands
+
+```bash
+npm run dev      # start dev server (Next.js, localhost:3000)
+npm run build    # production build
+npm run lint     # ESLint via next lint
+npx tsc --noEmit # type-check without emitting (run before committing)
+```
+
+No test suite currently exists.
+
+---
+
+## Runtime patterns
+
+**"use client" is universal** — every interactive file in `app/` and `components/`
+starts with `"use client"`. There are no server components in use yet.
+
+**localStorage replaces Supabase everywhere** — all persistence (birth data, journal
+entries) goes through localStorage. The `useJournalEntries` hook and
+`upsertEntry`/`deleteEntry` helpers in `lib/journal.ts` dispatch a
+`"journal-entries-updated"` custom window event after every write so sibling
+components re-render. Same pattern for birth data: `"birth-data-updated"` event.
+
+**Inline styles are primary; Tailwind is supplemental** — most styling is inline
+style objects. Tailwind is used only for responsive breakpoints (`hidden md:flex`,
+`md:pt-[52px]`, etc.) and the occasional layout utility. Do not refactor inline
+styles to Tailwind.
+
+**Ref mirrors for stale-closure avoidance** — when a callback (like auto-save) needs
+to read current state synchronously without being in the dependency array, a ref
+mirror pattern is used: `const fooRef = useRef(foo); useEffect(() => { fooRef.current
+= foo; }, [foo])`. See `savedEntryRef` and `attachmentRef` in
+`app/journal/new/page.tsx`.
+
+**useMemo for all expensive derivations** — natal chart calculation, transit
+generation, filtering, and aspect computation are all wrapped in `useMemo`. Don't
+call `generateTransitsCached` or `calculateNatalChart` outside a memo.
 
 ---
 
@@ -52,12 +93,43 @@ Four tabs, mobile bottom nav (desktop top nav):
 - **"Journal" is the settled name for the journal tab — not a placeholder.**
 - Birth data: date + time + city. Unknown time defaults to noon. Placidus house system.
 - General transit interpretations: cached per event (zero marginal AI cost per user).
-- Personal transit analysis: per-user, AI-generated on page load.
-- Delete journal entries: MVP scope.
+- Personal transit analysis: per-user, AI-generated, cached per (transit_id, user_id).
+  Never generated without birth data present. Never touches journal history.
+- Delete journal entries: MVP scope. Surfaced only from within the entry page (burn
+  mechanic). Not available from the journal list page — intentional friction.
 - You page is house-first. No natal planet detail pages — replaced by house cards.
 - Configuration cards (Defining Aspects) are first-class on the You page, not post-MVP.
 - Aspects and Bodies as dedicated lenses on the You page are post-MVP pending user feedback.
 - Post-MVP only: push notifications, depth signal, natal interp updates, journal filtering.
+- No-birth-data state on transit detail: READING section is hidden entirely.
+  REFLECT CTA is replaced by:
+  Body copy (EB Garamond italic, gold — meaning layer register):
+  "This transit has more to say. It needs your origin to say it."
+  CTA label: ENTER YOUR ORIGIN
+  This CTA dispatches the "vigil-open-birth-input" window event, which opens BirthDataCard.
+  Note: when Supabase auth is built, the `event.house != null` birth-data presence check
+  must be replaced with an explicit `hasBirthData` boolean from user context, not inferred
+  from house presence.
+- **"Origin" is the user-facing term for birth data throughout the UI.**
+  Use "origin" wherever the user sees it: "Enter your origin," "Your origin," "Origin not set."
+  "Birth data" remains the correct term in code, schema, and this document.
+
+### AI scope — locked, do not revisit
+
+- **Journal data is never passed to the AI layer.** Deliberate product decision, not
+  a deferred feature. Journal entries contain personal reflection that must not be
+  accessible to the AI, the product, or any third party.
+- **No AI chat within journal entries. Ever.** Do not build an AI chat component
+  for journal entries under any circumstances.
+- **No AI response to journal entries.** The AI interprets the sky and the chart.
+  The user bridges the gap to their own reflection. That gap is the product.
+- **AI interpretation is chart-aware but never journal-aware.** Transit readings,
+  house readings, and configuration readings are generated from natal chart and
+  ephemeris data only. Never from journal history.
+- **Reason:** Privacy, product integrity, and liability. Vigil is an observatory,
+  not a therapist. An AI responding to deep personal disclosures carries real risk.
+  Do not build toward this under any framing unless this section is explicitly
+  updated with documented reasoning.
 
 ---
 
@@ -65,18 +137,26 @@ Four tabs, mobile bottom nav (desktop top nav):
 
 ### Ungated (no account required)
 - Feed — transit cards, birth data input bar
-- Transit detail page — general interpretation, personalized analysis if birth data present
+- Transit detail page — chart-aware AI reading if birth data present; origin prompt if not
 - You page — natal chart, house cards, configuration cards (generic interp if no account)
+- Collective Unconscious — weekly AI forecast article (read only)
 
-### Gated (account required, triggered by Reflect CTA)
-- Full journal (create, view, manage entries)
-- Personalized AI analysis with journal history injected
-- You page — full AI house and configuration interpretations
+### Account required (free)
+- Journal — cross-device sync rationale. This is the only MVP gated feature.
+- Natal portrait — deep AI-generated birth chart reading, generated at account creation
+- Year in Review — annual, generated on demand each December, shareable
+- Collective Unconscious comments — deferred post-MVP
 
-Note: account creation is required to journal. Birth data is not strictly required
-to create an account, but is required for personalized interpretation. A user without
-birth data will see the empty state prompting birth data entry. The postcard captures
-whichever interpretation was rendered at the moment Reflect was tapped.
+### Premium subscription (post-MVP, not yet designed)
+- Year Ahead forecast — forward-looking complement to Year in Review, ~$7 one-time
+  annual purchase. Distinct product from Year in Review. Users won't experience
+  separation as a removal — they are conceived and launched as separate things.
+- Transit calculator
+- Synastry readings
+- Guided journal pages — prompted, scaffolded reflection tied to specific transits
+  or chart placements. May include creator collaborations (see below).
+
+Note: everything that exists at launch remains free forever. No retroactive gating.
 
 ---
 
@@ -89,28 +169,203 @@ whichever interpretation was rendered at the moment Reflect was tapped.
 - Tapping a card: expands to transit detail panel (morph animation, not page nav)
 - BirthDataCard at top for unauthenticated users
 
-### 2. Transit detail (built)
+### 2. Transit detail (built — refinement pass complete)
 - Morphs from feed card in place (480ms ease-in-out)
-- BODIES, ASPECT/CYCLE, PASSAGE, INTERPRETATION sections
-- REFLECT CTA → account gate if unauthed, journal entry if authed
+- Section order: READING → BODIES → ASPECT/CYCLE → PASSAGE → REFLECT
+- READING: chart-aware AI interpretation, renders only when birth data present
+- If no birth data: READING hidden, REFLECT replaced by origin prompt + ENTER YOUR ORIGIN CTA
+- BODIES, ASPECT/CYCLE, PASSAGE sections always render
 
 ### 3. You page (built — see full spec below)
 - House-first organization. 12 house cards, not planet cards.
 - No natal planet detail pages in MVP — replaced entirely by house card detail views.
 - Configuration cards (Defining Aspects) are first-class alongside the house grid.
-- AI interpretation deferred — INTERPRETATION sections show placeholder copy until
+- AI interpretation deferred — READING sections show placeholder copy until
   auth and schema are stable.
 
-### 4. Journal (next)
-- Reverse chronological list of entries
-- FAB for freeform entry
-- Context entries spawned from transit/house/configuration detail carry a postcard
-- AI chat within each entry, has access to entry text + full journal history
-- Delete with confirmation
+### 4. Journal (built — see full spec below)
 
-### 5. Settings
-- Birth data management
+### 5. Collective Unconscious (not yet built)
+- Weekly AI-generated astrological forecast article
+- Lives on the Feed, above transit cards — a card that links to the full article
+- Readable by anyone, no account required
+- Generated once per week, cached, shared across all users (near-zero marginal cost)
+- Comment section deferred post-MVP
+- Content pipeline: weekly generation on a fixed schedule, reviewed before publish
+
+### 6. Settings
+- Birth data management (labeled "Your Origin" in UI)
 - Account details
+
+---
+
+## Account creation — natal portrait flow
+
+Account creation is a character-creation flow, not a form. Entering your origin
+generates a deep AI natal portrait — the concierge the user receives just for
+registering. This is the primary value exchange at the account creation moment.
+
+### What the portrait covers
+- Defining aspects and chart configurations
+- Chart ruler
+- Saturn return context
+- Architectural tensions of the lifetime
+- Meaningfully deeper than pop astrology ("you're a Leo") but more personal and
+  digestible than the overwhelm of a site like Astro-Seek
+
+### Portrait caching and display
+- Generated once at account creation. Cached permanently per user.
+- Lives on the You page as a dated artifact — the reading generated at the moment
+  you entered your origin. Permanent, replayable, always accessible.
+- Natal charts do not change — this content never needs regeneration unless
+  birth data is corrected.
+
+### Birth data correction policy
+- **One free correction** after account creation. Correcting origin data and
+  regenerating the portrait is free exactly once.
+- After the free correction is used: regeneration is a paid action, $4–9.
+- Rationale: handles the honest edge case (uncertain birth time found later,
+  hospital records discovered years later) without unlimited free regeneration.
+- UX: Settings → Origin shows edit affordance with "You have one free origin
+  correction" note until used. After that, regeneration triggers a purchase flow.
+- This is Vigil's first paid transaction surface, live at launch.
+
+---
+
+## Year in Review (post-MVP, free for registered users)
+
+Annual feature. Generated on demand each December.
+
+### Backward-looking layer (Year in Review)
+- Which major transits shaped the year
+- Which houses were most activated
+- Defining astrological moments of the past 12 months
+- Shareable artifact — primary organic acquisition mechanic
+- A user can create an account just to receive their Year in Review even if
+  they never journaled
+
+### Forward-looking layer (Year Ahead) — separate product, premium
+- Upcoming forecast for the next 12 months
+- Personalized reflection prompts to prepare
+- One-time annual purchase, ~$7
+- Launched alongside Year in Review in December
+- Users will not perceive this as a removal — Year in Review is clearly
+  backward-looking (like Spotify Wrapped), Year Ahead is a distinct offering
+
+---
+
+## Business & Monetization Strategy
+
+### Positioning
+Premium ritual lifestyle platform. Not a pop astrology app. Comparable ethos
+to Equinox or Erewhon. The product is complete and valuable as a free instrument.
+Monetization extends the product without diminishing it.
+
+### What is free, forever, no exceptions
+Feed, transit detail, You page, natal portrait, journal, Collective Unconscious,
+Year in Review. Everything that exists at launch stays free. No retroactive gating.
+
+### Revenue surfaces (in order of build priority)
+
+**1. Portrait regeneration — launches with MVP**
+$4–9 one-time. Triggered when user exhausts their free correction and wants to
+update birth data and regenerate portrait. Low volume, honest value exchange.
+
+**2. Year Ahead forecast — post-MVP, annual**
+~$7 one-time purchase each December. Forward-looking companion to the free
+Year in Review. Not a subscription, not a removal — a distinct product.
+
+**3. Digital cosmetics — post-MVP**
+App skins (full design system reskins), tarot deck art (when tarot feature
+launches). One-time purchases. Requires design token system to be built first
+as a prerequisite — reskinning must be a configuration change, not a rebuild.
+Identity investment in the product; stronger retention than subscriptions.
+
+**4. Premium subscription — post-MVP, intentional**
+Not a broad paywall. Gates features that are genuinely additive:
+transit calculator, synastry readings, guided journal pages, potentially
+creator-produced content. Price TBD — must be justified by ongoing delivered
+value, not convenience alone. Do not design this tier until you have enough
+users to validate what they will actually pay for.
+
+**5. Physical bazaar — post-traction only**
+Curated artisan goods: bespoke homeware, fragrance, jewelry, tarot decks,
+physical journals, esoteric objects. Only pursue after proven digital success
+and only when a vendor approaches Vigil, not the other way around. Operational
+weight (curation, logistics, returns) is significant for a solo founder.
+
+### Creator marketplace (post-MVP, strategic direction)
+Astrologers as content partners. Their guided journal pages and worksheets become
+personalized through Vigil's natal data engine — a static worksheet becomes
+chart-aware. Revenue share model. Brings creator audiences to Vigil; makes
+creator content better than anything they could sell independently.
+
+Key open question before building: IP ownership of personalized output must be
+resolved in partner agreements before any creator content goes live.
+
+### What not to build for monetization
+- Donations / patronage — conflicts with premium positioning
+- Data licensing — ethically incompatible with privacy positioning
+- Advertising — never
+
+### On subscriptions and subscription fatigue
+The target user is accustomed to a free swivel chair of tools (Co-Star, ChatGPT,
+Astro-Seek). Convenience alone does not justify recurring payment. A subscription
+tier must gate features with genuinely ongoing value — not features that exist
+at launch as free. Design the subscription tier after you know what users
+obsessively use, then price toward that behavior.
+
+---
+
+## Legal To-Dos (pre-launch required)
+
+These items must be completed before a single user creates an account.
+They are not optional and are not post-launch tasks.
+
+### Privacy policy
+Must accurately cover:
+- What is collected: birth date, birth time, birth city (latitude/longitude)
+- What is derived and stored: natal portrait as a generated personal artifact
+- Retention policy: how long data is held, what happens on account deletion
+- User right to deletion: including the generated portrait and all cached
+  AI interpretations — these are personal data in their own right
+- CCPA compliance: birth date + time + location is quasi-identifying personal
+  data under California law. Vigil is built by a California resident for
+  California users. CCPA applies.
+- GDPR consideration: if European users are anticipated, additional obligations apply
+
+### Terms of service
+Must cover:
+- Account creation and termination
+- Payment terms for portrait regeneration and future paid features
+- California auto-renewal law: subscription products must comply with specific
+  disclosure requirements. Non-compliance carries penalty exposure.
+- Refund policy
+- User-generated content (when Collective Unconscious comments launch)
+
+### Payment processing
+- Stripe or equivalent required for portrait regeneration at launch
+- PCI compliance obligations apply
+- Refund policy must be defined before first transaction
+
+### Shareable artifacts (Year in Review)
+- Define exactly what data is included in the shared artifact
+- Confirm user controls what is shared and what remains private
+- No chart data should be shared without explicit user action
+
+### Creator marketplace (before any partner content goes live)
+- IP ownership agreement: who owns the personalized output when a creator's
+  template is rendered with Vigil's natal data engine — the creator, Vigil,
+  or the user. Must be resolved in writing before launch.
+- Revenue share terms
+- Content standards and moderation obligations
+
+### Entity and liability
+- LLC formation deferred until revenue or liability event. Revisit before
+  first paid transaction goes live — portrait regeneration at launch may
+  be that trigger.
+- Consult a real lawyer before launch. The council identifies exposure;
+  a lawyer resolves it.
 
 ---
 
@@ -161,7 +416,7 @@ Hover state:      background rgba(255,255,255,0.02), border-top rgba(200,169,110
 
 ### CTA hierarchy
 1. **Primary (Reflect):** Gold tint bg + gold border + top highlight. Exists nowhere else.
-2. **Secondary (View your reflection):** Neutral outline only.
+2. **Secondary (View your reflection / Enter your origin):** Neutral outline only.
 3. **Ghost (Back to feed / ← Houses / ← Patterns):** No border, tertiary text.
 
 ### Motion principles
@@ -200,7 +455,25 @@ Not on every screen.
 - Never affirm flatly. Show weight through specificity, not assertion.
 - Earn every adjective. If it can be cut without losing meaning, cut it.
 - Jungian individuation is the subtext, never the text.
+- No em dashes — ever. Use periods, ellipses, or commas. The ellipsis is the
+  correct pause mark in this voice. Em dashes are an AI writing pattern and
+  break the register.
 - Consult the voice skill's metaphor system table when naming any new feature or CTA.
+
+### Locked copy — origin prompt (transit detail, no birth data)
+```
+Body:  "This transit has more to say. It needs your origin to say it."
+CTA:   ENTER YOUR ORIGIN
+```
+Rendered in interpretive register: EB Garamond italic, gold #C8A96E.
+CTA uses secondary style (neutral outline).
+
+### Locked copy — journal empty state
+```
+"Nothing written yet, traveler."
+```
+EB Garamond italic, 18px, #8B909C. Centered vertically in the viewport below the header.
+No secondary line, no CTA in the empty state — the FAB handles the action.
 
 ### Card description copy (current status)
 All copy in `lib/transitCopy.ts` is functional placeholder — written in the correct
@@ -209,40 +482,204 @@ AI interpretation layer is built. Do not treat current copy as canonical voice e
 
 ---
 
-## Journal — entry types and postcard concept
+## Journal — full spec (built)
 
 ### Entry types (MVP)
 
 | Type | Label | Notes |
 |---|---|---|
-| Plain / blank | **Freeform** | FAB-initiated, blank editor, date set to today |
-| Transit-linked | **Transit** | Spawned from transit detail via Reflect CTA |
-| House-linked | **Natal** | Spawned from house detail via Reflect CTA |
-| Configuration-linked | **Natal** | Spawned from configuration detail via Reflect CTA |
-| Tarot spread | **Spread** | Post-MVP. Do not build for MVP. |
+| Plain / blank | **Freeform** | FAB-initiated, blank editor, no attachment |
+| Transit-linked | **Transit** | Attachment set to a transit event |
+| House-linked | **Natal** | Attachment set to a house |
+| Configuration-linked | **Natal** | Attachment set to a configuration |
+| Tarot spread | **Spread** | Post-MVP. Enum value exists, do not build UI. |
 
-### Postcard concept (Transit, House, and Configuration entries)
-When a user taps Reflect on a transit, house, or configuration detail, a postcard is
-created and attached to the new journal entry. The postcard is:
+Entry type is derived from attachment — not chosen by the user. No attachment =
+freeform. Transit attached = transit. House or configuration attached = natal.
 
-- A frozen snapshot of the context at the exact moment Reflect was tapped
-- Read-only — it does not update after creation
-- Displayed inline at the top of the entry, above the writing area
-- Not a tap target — it is context, not navigation back to the detail panel
+### Postcard / attachment concept
 
-**Postcard contents:**
-- For transit entries: planet(s), transit type, peak date, interpretation text shown
-- For house entries: house number, domain word, sign ruler, planets present, interpretation text
-- For configuration entries: configuration type, planets involved, interpretation text
+The attachment component sits at the top of every journal entry, above the writing
+area. It serves two roles:
+1. On a new entry (FAB-initiated): an optional attach region where the user can
+   connect an active transit, house, or defining aspect from their chart.
+2. On a context entry (spawned from Reflect CTA on a detail page): pre-populated
+   with the detail that triggered the entry.
 
-**Postcard in the data layer:**
-The `context_data` (jsonb) field in `journal_entries` must store enough to
-reconstruct the postcard in full — do not store only a reference ID.
-The postcard's interpretation text is also available as context for the
-journal AI chat within that entry.
+The attachment is a frozen snapshot — read-only after creation, stored in full in
+`context_data` so the postcard can be reconstructed without a live data lookup.
 
-**The postcard mental model:**
-The sky sent you something. You're writing back. The postcard is what arrived.
+**Postcard mental model:** The sky sent you something. You're writing back.
+The postcard is what arrived.
+
+### `lib/journal.ts` — data layer
+
+localStorage key: `vigil-journal-entries`. Array of `JournalEntry` objects.
+
+```typescript
+export type JournalEntry = {
+  id: string
+  created_at: string
+  updated_at: string
+  entry_type: 'freeform' | 'transit' | 'natal' | 'spread'
+  title: string
+  body_text: string
+  context_id?: string
+  context_data?: Record<string, unknown>
+}
+```
+
+Exports:
+- `useJournalEntries()` — returns `{ entries }`, listens for `"journal-entries-updated"`
+- `upsertEntry(entry: JournalEntry)` — insert or update by id, dispatches event
+- `deleteEntry(id: string)` — removes by id, dispatches event
+
+### Journal list page — `app/journal/page.tsx` (built)
+
+- Background: `#0D1117`. No SolarSystem animation.
+- Header: "Journal" title (EB Garamond 28px, Text/1, left) + quill FAB (PenLine icon,
+  Lucide, 18px) in the same header row, right-aligned.
+- FAB: circular 56px, GlassPanel anatomy with elevated surface
+  `rgba(255,255,255,0.08)` bg. Navigates to `/journal/new` on tap.
+- Subtitle: current date + local time, e.g. `Monday, June 2 · 9:41 AM`.
+  System sans 12px, Text/2. Updates on 1-minute interval.
+- Entry list: reverse chronological GlassPanel cards. Each card is tappable,
+  navigates to `/journal/[id]`.
+- Card content:
+  - Title: entry `title` if present, else `Untitled entry` — EB Garamond 17px, Text/1
+  - Metadata row: system sans 11px, Text/2
+    - Last edited: `updated_at` formatted as `Jun 2 · 9:41 AM`
+    - Attachment label (if present): transit title, `H[n]: [Domain]`, or configuration
+      label — preceded by `·` separator. No timing or planet metadata.
+- Empty state: `"Nothing written yet, traveler."` — EB Garamond italic 18px, #8B909C.
+  Centered vertically below header.
+
+### New entry page — `app/journal/new/page.tsx` (built)
+
+Doc-style layout. Content centered, max-width constrained:
+- Background: `#0D1117`
+- Content column: `max-width: 680px`, `margin: 0 auto`
+- Mobile: full width, `24px` horizontal padding
+- Desktop: centered column at max-width
+
+**Sticky header** — full viewport width, `background: rgba(13,17,23,0.85)`,
+`backdrop-filter: blur(12px)`, `padding: 12px 24px`:
+- Left: `← Journal` ghost button, navigates to `/journal`
+- Right (mobile): pencil icon (view mode) / checkmark icon (edit mode) + flame icon
+- Right (desktop): flame icon only
+- Flame icon behavior: if `hasContent` (title or body non-empty) → open burn dialogue.
+  If no content → navigate silently to `/journal`.
+- `hasContent` = `title.trim().length > 0 || body.trim().length > 0`
+
+**Global header** — same header component as Feed and You page, rendered above sticky
+entry header.
+
+**Entry state:**
+```typescript
+const [title, setTitle] = useState('')
+const [body, setBody] = useState('')
+const [savedEntry, setSavedEntry] = useState<JournalEntry | null>(null)
+const [isEditMode, setIsEditMode] = useState(true) // new entries open in edit mode
+const [attachment, setAttachment] = useState<Attachment | null>(null>
+```
+Entry ID: `crypto.randomUUID()` on mount, stored in ref.
+
+**Auto-save:** saves to localStorage on every `onChange` keystroke. First save sets
+both `created_at` and `updated_at`. Subsequent saves update `updated_at` only.
+Uses ref mirrors (`savedEntryRef`, `attachmentRef`) to avoid stale closures.
+
+**Attach component** — `components/journal/AttachComponent.tsx`. Rendered below the
+sticky header, above the timestamp. See attach component spec below.
+
+**Last changed timestamp** — below attach component, left-justified. Hidden until
+first save. Format: `Monday, June 2 · 9:41 AM` — system sans 11px, Text/3.
+
+**Title field** — EB Garamond 28px, Text/1. No border, no bg. Ghost text:
+`Untitled entry` (same style, Text/3). Mobile: editable in edit mode only.
+Desktop: always editable.
+
+**Body field** — textarea, auto-expands. System sans 15px, Text/2. No border, no bg.
+Ghost text: `The page beckons.` — EB Garamond italic 16px, Text/3. Mobile: editable
+in edit mode only. Desktop: always editable.
+
+**Burn confirmation dialogue** — GlassPanel modal, centered, both mobile and desktop.
+Backdrop: `rgba(0,0,0,0.6)`. Click outside = cancel.
+- Title: `Burn this page?` — EB Garamond 20px, Text/1
+- Body: `This entry will be released. It cannot be recalled.` — system sans 13px, Text/2
+- CTAs: `CANCEL` (secondary) left, `BURN` (primary gold) right
+- On burn: `deleteEntry(id)` then navigate to `/journal`
+
+### Entry view/edit page — `app/journal/[id]/page.tsx` (built)
+
+Same layout and components as `/journal/new/page.tsx`, populated from localStorage
+by `id`. If entry not found, navigate to `/journal`. All editing, auto-save, burn,
+and attach behavior identical to new entry page. Existing entries open in view mode
+(not edit mode) on mobile.
+
+### Attach component — `components/journal/AttachComponent.tsx` (built)
+
+```typescript
+export type Attachment =
+  | { type: 'transit'; data: ScoredTransit }
+  | { type: 'house'; data: HouseData }
+  | { type: 'configuration'; data: ChartConfiguration }
+
+export type HouseData = {
+  number: number
+  sign: string
+  domainWord: string
+  planets: { name: string; symbol: string }[]
+}
+```
+
+**Empty state** — tappable full-width dashed region:
+- `background: rgba(255,255,255,0.03)`, `border: 0.5px dashed rgba(255,255,255,0.12)`
+- Paperclip icon (Lucide), title `Attach a moment.` (system sans 12px uppercase, Text/3)
+- Description: `Connect an active transit or natal chart placement to this entry.`
+- Hover: border brightens to `rgba(255,255,255,0.20)`
+- Tap: opens attach modal
+
+**Attach modal:**
+- Desktop: centered modal, `max-width: 520px`, backdrop, click outside to close
+- Mobile: bottom sheet, `border-radius: 12px 12px 0 0`, closes on swipe or tap outside
+- Title: `What calls to you?` — EB Garamond 18px, Text/1
+- X close button top-right
+- Tabs: `TRANSITS` (default) and `NATAL CHART`
+  - Selected: Text/1, `border-bottom: 1px solid #C8A96E`
+  - Unselected: Text/3
+- Transits list: same pipeline as Feed (transitGenerator + transitFilter + birth data
+  from localStorage). Each row: title (EB Garamond 15px Text/1), peak date + house
+  (system sans 11px Text/2). No description blurb. Tap sets attachment, closes modal.
+- Natal chart list: two sections — `LIFE'S ARCHITECTURE` (12 house rows) and
+  `DEFINING ASPECTS` (configuration rows, hidden if none detected). Same row treatment.
+  Tap sets attachment, closes modal.
+- No birth data: origin prompt shown in list area for both tabs.
+
+**Attached state (postcard):**
+- GlassPanel anatomy, `border-top: 0.5px solid rgba(200,169,110,0.25)`
+- Type badge (`TRANSIT` or `NATAL`), gold, system sans 10px uppercase
+- X button top-right
+- Title: EB Garamond 17px, Text/1
+- Metadata: system sans 11px, Text/2
+  - Transit: `[peak date] · H[n]: [Domain]` (no timing indicator)
+  - House: domain word + planets present
+  - Configuration: planet list
+- `VIEW DETAILS` ghost button bottom-right — opens detail modal
+
+**Removal behavior:**
+- House or configuration: silent removal, revert to empty state
+- Transit: show removal warning dialogue first
+  - Title: `Remove this transit?`
+  - Body: `If this transit passes before you attach it again, it will be gone from the feed.`
+  - CTAs: `CANCEL` left, `REMOVE` (primary gold) right
+
+**Detail view modal:**
+- GlassPanel panel, `max-width: 600px`, `max-height: 85vh`, centered
+- X close button top-right
+- Transit: renders `TransitDetail` component with attachment data
+- House: renders house expanded detail (SIGN, READING, BODIES sections) — no REFLECT CTA
+- Configuration: renders configuration expanded detail (READING, BODIES) — no REFLECT CTA
+- Click outside closes modal
 
 ---
 
@@ -255,16 +692,34 @@ Anthropic API, claude-sonnet-4-5 (or latest Sonnet). Called directly from the ap
 | Type | Triggered by | Context injected | Cached? |
 |---|---|---|---|
 | General transit interp | First load of transit detail | Transit event data only | Yes — once per transit |
-| Personalized transit analysis | Transit detail load (birth data present) | Natal chart: sign, house, aspects | No — per user |
+| Personalized transit reading | Transit detail load (birth data present) | Full natal chart: planets, signs, houses, aspects, configurations. Natal intersections flagged explicitly. | Yes — per (transit_id, user_id) |
 | House interpretation | House card expanded | Full natal chart + house data | Per user per house, cache permanently |
 | Configuration interpretation | Configuration card expanded | Full natal chart + configuration planets | Per user per configuration, cache permanently |
-| Journal AI chat | Each message in journal entry | Entry text + postcard context + summarized journal history | No |
+| Natal portrait | Account creation | Full natal chart: all planets, signs, houses, aspects, configurations, chart ruler, Saturn return context | Per user, cache permanently. Regenerate only on paid origin correction. |
+| Collective Unconscious article | Weekly schedule | Current week's major transits and sky conditions | Once per week, cached, shared across all users |
+| Year in Review | User-triggered, December | Full year's transit history for user, activated houses, defining moments | Once per year per user |
+| Year Ahead forecast | User purchase, December | Upcoming 12 months of transits against natal chart | Once per year per user, triggered by purchase |
+
+### Transit READING generation notes
+- Generate only when birth data is present. No sky-only fallback reading.
+- Never inject journal history into transit interpretations. Never inject journal
+  history into any AI query anywhere in this product.
+- Up to two paragraphs as a guideline, not a hard limit. If the transit has
+  significant natal intersection (e.g. transit occurring in same house as user's
+  stellium, transit aspecting a natal planet directly), go deeper.
+- Explicitly flag natal intersections in the prompt context so the model can
+  weight them appropriately.
+- Cache key: (transit_id, user_id). Regenerate only if birth data changes.
 
 ### Cost notes
-Single user: ~$1–3/month at typical usage. At 100 users, recoverable at $5–10/month
-subscription. Caching general transit interpretations is the primary cost lever.
+Single user: ~$1–3/month at typical usage. Caching is the primary cost lever.
+Transit readings: cached per (transit_id, user_id) — generated once, never again
+unless birth data changes. ~5–8 active transits per user at any time.
 House interpretations never change — cache permanently per user (12 total per user).
 Configuration interpretations are also permanent — cache per user per configuration key.
+Natal portrait: one generation per user at account creation. Permanent cache.
+Collective Unconscious: one generation per week, shared across entire user base.
+Near-zero marginal cost per user regardless of scale.
 
 ---
 
@@ -297,22 +752,31 @@ users
   id, email, created_at
 
 birth_data
-  user_id, birth_date, birth_time, birth_city, latitude, longitude, time_known
+  user_id, birth_date, birth_time, birth_city, latitude, longitude, time_known,
+  correction_used (boolean) -- tracks whether free origin correction has been used
 
 natal_chart (cached calculations)
   user_id, planet, sign, house, degree, aspects (jsonb), generated_at
 
+natal_portrait (permanent cache)
+  user_id, portrait_text, generated_at
+  -- generated once at account creation, cached permanently
+  -- regenerated only on paid origin correction (or free correction if unused)
+  -- journal body_text is never passed to any AI query
+
 journal_entries
-  id, user_id, created_at, updated_at, body_text,
+  id, user_id, created_at, updated_at, title, body_text,
   entry_type (freeform|transit|natal|spread),
   context_id (nullable), context_data (jsonb)
   -- context_data stores full postcard reconstruction data, not just a reference ID
+  -- journal body_text is never passed to any AI query
 
 transit_interpretations (cache)
   transit_id, general_interpretation, generated_at
 
 user_transit_analyses (per-user cache)
   user_id, transit_id, personalized_analysis, generated_at
+  -- cache key: (transit_id, user_id). Regenerate only if birth data changes.
 
 user_house_interpretations (permanent cache)
   user_id, house_number, interpretation, generated_at
@@ -320,6 +784,22 @@ user_house_interpretations (permanent cache)
 user_configuration_interpretations (permanent cache)
   user_id, configuration_key, interpretation, generated_at
   -- configuration_key: type + sorted planet names e.g. "tSquare:Moon,Neptune,Venus"
+
+collective_unconscious_articles (weekly cache)
+  id, week_start_date, article_text, generated_at
+  -- one row per week, shared across all users
+
+user_year_reviews (annual cache)
+  user_id, year, review_text, generated_at
+  -- generated on demand in December, cached permanently per user per year
+
+user_year_ahead (annual cache, paid)
+  user_id, year, forecast_text, generated_at, purchase_id
+  -- generated on purchase, cached permanently per user per year
+
+payments
+  id, user_id, type (portrait_regen|year_ahead|cosmetic|other),
+  amount, created_at, stripe_payment_id
 ```
 
 ---
@@ -332,9 +812,11 @@ app/
   you/
     page.tsx                  ← Natal chart profile (built)
   journal/
-    page.tsx                  ← Journal list (to build)
-    new/page.tsx              ← New freeform entry (to build)
-    [id]/page.tsx             ← Entry view/edit (to build)
+    page.tsx                  ← Journal list (built)
+    new/page.tsx              ← New entry page (built)
+    [id]/page.tsx             ← Entry view/edit (built)
+  collective/
+    page.tsx                  ← Collective Unconscious article view (not built)
   settings/
     page.tsx
 
@@ -345,17 +827,16 @@ components/
     Planet.tsx
   cards/
     TransitCard.tsx           ← Built and working
-    TransitDetail.tsx         ← Built and working
+    TransitDetail.tsx         ← Built and working — refinement pass complete
   journal/
-    EntryEditor.tsx           ← To build
-    AIChat.tsx                ← To build
-    Postcard.tsx              ← To build
+    AttachComponent.tsx       ← Built and working — attach/postcard/detail modal
   ui/
     GlassPanel.tsx            ← Built and working — base card component
     CTAButton.tsx             ← Built and working
     StatusDot.tsx             ← Built and working
     BottomNav.tsx             ← Built and working
     BirthDataCard.tsx         ← Built and working — shared across Feed + You
+                                 Listens for "vigil-open-birth-input" window event
 
 lib/
   astronomy.ts                ← Astronomy Engine wrappers
@@ -367,6 +848,10 @@ lib/
   transitCopy.ts              ← Card description lookup (built)
   transitDetail.ts            ← Static lookup tables for transit detail panel (built)
   timingIndicator.ts          ← Shared timing indicator utility (built)
+  houseReadings.ts            ← placeholder AI swap points for house detail
+  configurationReadings.ts    ← placeholder AI swap points for configuration detail
+  signBlurbs.ts               ← 12 sign blurbs + element/modality lookup
+  journal.ts                  ← useJournalEntries hook, upsertEntry, deleteEntry
   supabase.ts                 ← DB client + queries
   config.ts                   ← APP_NAME and other constants
 ```
@@ -450,24 +935,40 @@ Expanded detail (replaces right column content, left stays fixed, 480ms transiti
 ← Houses                         ← ghost back button
 
 H[n] · [Domain Word]             ← EB Garamond 22px Text/1
-[Sign] rules this house          ← system sans 12px Text/2
+[symbol] [Planet] · [symbol] [Planet]  ← planet chips as subtitle (gold glyph + name)
+                                    omitted for empty houses
 
 ──────────────────────────────
 
-SIGN                             ← section label (10px uppercase tracked Text/3)
-[Sign name]                      ← system sans 13px Text/1
+SIGN                             ← section label
+[Sign name]                      ← EB Garamond 18px Text/1
+[Element · Modality]             ← system sans 11px Text/3 tracked
+[Sign blurb]                     ← system sans 12px Text/2, from lib/signBlurbs.ts
 
-PLANETS                          ← section label
-[symbol + name for each]         ← gold symbol, Text/2 name
+READING                          ← section label
+[1–2 paragraphs]                 ← EB Garamond italic 15px #C8A96E, line-height 1.8
+                                    from lib/houseReadings.getHouseReading()
+                                    placeholder until AI layer built
 
-INTERPRETATION                   ← section label
-The interpretation for this      ← EB Garamond italic 15px #C8A96E
-house will appear here.          ← placeholder — AI layer deferred
+BODIES                           ← section label (omitted for empty houses)
+  [Planet] in [Sign]             ← subsection: EB Garamond 16px Text/1
+  [2–4 sentences]                ← 12px Text/2, from getPlanetNote()
+  [line swatch] [glyph] [ASPECT TYPE] with [Planet]  ← aspect bullet
+  [2–4 sentences]                ← 12px Text/2, from getAspectNote()
 
-[REFLECT]                        ← primary gold CTA (CTAButton component)
+Empty house: "This house is unoccupied. Its sign still shapes the domain."
+             12px italic Text/3, BODIES section omitted entirely
+
+[REFLECT]                        ← sticky bottom, gold CTA
+                                    96px spacer above, gradient fade bg
 ```
 
-Back button ("← Houses"): ghost style, clears BOTH expandedHouse AND activeHouse.
+Aspect bullet anatomy:
+- Inline SVG swatch (28×12px) with correct line style for aspect type
+- Gold glyph of the aspected planet
+- "[ASPECT TYPE] with [Planet name]" — 11px uppercase letter-spacing 0.06em Text/2
+- Only rendered for aspects currently drawn on the wheel for this house
+- Uses filtered houseAspects prop — not recomputed in component
 
 ### Section 2 — DEFINING ASPECTS (conditional)
 
@@ -488,31 +989,47 @@ Collapsed state:
 - Second line: planet symbols + names, same treatment as house cards
 - Active: border-top rgba(200,169,110,0.55)
 
+**Configuration card subtitle logic (locked):**
+```
+T-Square    → "Focal planet: [planet name]"
+Yod         → "Focal planet: [planet name]"
+Kite        → "Focal planet: [planet name]"
+Stellium    → "[H# Domain]" if house stellium, "[Sign]" if sign stellium
+Grand Trine → "[Element] Trine"
+Grand Cross → "[Modality] Cross"
+```
+
 Expanded detail:
 ```
 ← Patterns                       ← ghost back button
 
 [Configuration label]            ← EB Garamond 22px Text/1
-[Planet list]                    ← system sans 12px Text/2
+[Subtitle per logic above]       ← system sans 12px Text/2, focal in gold
 
 ──────────────────────────────
 
-PLANETS                          ← section label
-[symbol + name for each]
+READING                          ← section label
+[1–2 paragraphs]                 ← EB Garamond italic 15px #C8A96E, line-height 1.8
+                                    from getConfigurationReading() — placeholder
 
-PATTERN                          ← section label
-[Structural description]         ← e.g. "Two planets in opposition, both squared
-                                    by a focal planet." System sans 13px Text/1
+BODIES                           ← section label
+  [Subsection title]             ← EB Garamond 16px Text/1
+  [3–6 sentences]                ← 12px Text/2, from getParticipantNote()
 
-INTERPRETATION                   ← section label
-The interpretation for this      ← EB Garamond italic 15px #C8A96E
-pattern will appear here.        ← placeholder — AI layer deferred
-
-[REFLECT]                        ← primary gold CTA
+[REFLECT]                        ← sticky bottom, gold CTA, 96px spacer above
 ```
 
-Back button ("← Patterns"): ghost style, clears expandedConfiguration AND
-activeConfiguration AND activeHouse.
+BODIES subsection grouping:
+- Paired bilateral: "[Planet] and [Planet] in [aspect type]"
+- Solo apex/focal: "[Planet] as [role]"
+- T-Square: one paired (opposition) + one solo (apex)
+- Yod: one paired (sextile) + one solo (focal)
+- Grand Cross: two paired (two oppositions)
+- Grand Trine: three solo (no hierarchy)
+- Stellium: one solo per planet (no pairing)
+- Kite: three solo (trine members) + one paired (opposition/focal)
+
+No FIGURE or PATTERN section — READING carries full contextual weight.
 
 ### State model
 ```typescript
@@ -652,8 +1169,12 @@ Row 4:  Drive meets resistance. Frustration that demands disciplined effort.
 ```
 [Timing indicator]
 [Transit title]                  ← EB Garamond display
-[House] (if birth data)
-[Card description / hook]        ← data layer register
+H[x]: [Domain] (if birth data)   ← e.g. "H3: Mind"
+
+READING                          ← section label
+[1–2 paragraphs]                 ← EB Garamond italic gold
+                                    chart-aware AI: natal chart context injected
+                                    hidden entirely if no birth data present
 
 BODIES                           ← section label
 [Body icon] Body name            ← one-clause domain blurb per body
@@ -664,10 +1185,11 @@ ASPECT  (or)  CYCLE              ← mutually exclusive
 PASSAGE
 [Calendar strip]
 
-INTERPRETATION
-[1–2 paragraphs]                 ← EB Garamond italic gold — placeholder for now
-
-[REFLECT]
+[REFLECT]                        ← gold primary CTA if birth data present
+                                    or:
+"This transit has more to say. It needs your origin to say it."
+                                    ← EB Garamond italic gold, if no birth data
+[ENTER YOUR ORIGIN]              ← secondary CTA, dispatches "vigil-open-birth-input"
 ```
 
 ### Body blurbs (locked — do not alter)
@@ -724,7 +1246,7 @@ SUPER BLUE BLOOD MOON → "Three cycles converging at once. Rare, and not accide
 - **GlassPanel.tsx** — base card component
 - **SolarSystem.tsx** — Canvas solar system, real planet positions, 90s drift
 - **Feed page** — full-bleed background, transit cards, real data
-- **Transit detail panel** — complete, voice audit passed
+- **Transit detail panel** — complete, voice audit passed, refinement pass complete
 - **BirthDataCard.tsx** — shared, Nominatim geocoding, localStorage persistence
 - **Transit generator** (`lib/transitGenerator.ts`) — all event types, stable
 - **lib/transitFilter.ts** — calibrated scoring, stable
@@ -732,69 +1254,182 @@ SUPER BLUE BLOOD MOON → "Three cycles converging at once. Rare, and not accide
 - **lib/transitCopy.ts** — card description lookup
 - **lib/transitDetail.ts** — body/aspect/cycle blurb lookups
 - **lib/timingIndicator.ts** — shared utility
-- **lib/natal.ts** — Placidus house cusps (verified vs Astro-Seek), Sun–Pluto +
-  Ascendant, Midheaven, Lilith (mean apogee), Chiron (mean longitude)
-- **lib/configurations.ts** — chart configuration detection, verified against
-  birth data, all seven configuration types
-- **NatalWheel.tsx** — SVG natal chart wheel, three rings, Placidus geometry,
-  aspect lines, active/hover states, symbol-only planet rendering
-- **You page** (`/app/you/page.tsx`) — complete:
-  - Desktop split panel (42% left fixed / 58% right scroll)
-  - LIFE'S ARCHITECTURE: 2×6 house card grid, expanded detail with
-    SIGN/PLANETS/INTERPRETATION/REFLECT
-  - DEFINING ASPECTS: 2-column configuration card grid, expanded detail
-  - NatalWheel responds to house/configuration selection and hover
-  - Empty state for no birth data
-  - Desktop top nav + mobile BottomNav
-  - ResizeObserver-driven wheel sizing
+- **lib/natal.ts** — Placidus house cusps (verified vs Astro-Seek)
+- **lib/configurations.ts** — chart configuration detection, verified
+- **NatalWheel.tsx** — SVG natal chart wheel, complete
+- **You page** (`/app/you/page.tsx`) — complete
+- **House detail panels** — content architecture complete
+- **Configuration detail panels** — content architecture complete
+- **lib/signBlurbs.ts** — 12 sign blurbs + element/modality lookup
+- **lib/journal.ts** — useJournalEntries, upsertEntry, deleteEntry
+- **Journal list page** (`app/journal/page.tsx`) — complete
+- **New entry page** (`app/journal/new/page.tsx`) — complete
+- **Entry view/edit page** (`app/journal/[id]/page.tsx`) — complete
+- **AttachComponent.tsx** — complete: empty state, attach modal, postcard,
+  removal warnings, detail view modal
 
 ### Not yet built
-- **House and configuration detail — AI interpretation** — INTERPRETATION sections
-  currently show placeholder copy. Deferred until auth and schema are stable.
-  Do not replace with static copy — AI generation is the correct approach.
-- **Journal** — next in build order (see below)
-- **Account creation gate / auth**
+- **Natal portrait generation** — AI deep reading at account creation. This is
+  the centerpiece of the account creation flow and must be high quality on day one.
+  Build immediately after auth is stable. Do not defer.
+- **House and configuration detail — AI interpretation** — placeholder copy in place.
+  Deferred until auth and schema are stable. Swap points are clean.
+- **Transit detail — AI READING** — placeholder copy in place. Deferred until auth
+  and schema are stable.
+- **Account creation gate / auth** — next major feature
 - **Supabase integration** — currently using localStorage throughout
-- **Settings page**
+- **Settings page** — includes Origin management with correction policy UX
 - **Birth data migration** from localStorage to Supabase on account creation
-- **Notable conjunction detection** in Defining Aspects — Moon-Saturn, Sun-Moon,
-  Sun-Mars etc. Currently only multi-planet configurations are surfaced. Post-MVP
-  consideration, may be pulled into MVP based on product feel.
+- **Reflect CTA wiring to journal** — REFLECT on transit/house/configuration detail
+  pages should create a new journal entry pre-populated with that context and navigate
+  to `/journal/new` (or `/journal/[id]` if entry already exists for that context).
+  Currently console.log only. Build after auth is stable.
+- **Portrait regeneration purchase flow** — $4–9, triggered after free correction used
+- **Collective Unconscious** — weekly article, Feed card, article page. Comments deferred.
+- **Year in Review** — post-MVP, free, annual, December
+- **Year Ahead forecast** — post-MVP, paid (~$7), annual, December
+- **Digital cosmetics** — post-MVP. Requires design token system built first.
+- **Notable conjunction detection** in Defining Aspects — post-MVP consideration.
 
-### localStorage schema (live)
-```json
-{
-  "birthDate": "1997-06-28",
-  "birthTime": "19:00",
-  "birthTimeKnown": true,
-  "birthCity": "Bellflower, Los Angeles County",
-  "latitude": 33.8817,
-  "longitude": -118.1270,
-  "timezone": "America/Los_Angeles"
-}
+---
+
+## Authentication flow — screen specs (in progress)
+
+Auth uses Supabase Auth with email/password and SSO (Google, Apple).
+Email confirmation required for email/password accounts.
+Validation is on-submit only — no real-time field validation.
+Rate limiting on signup endpoint via Vercel middleware (5 attempts per IP per hour).
+No CAPTCHA.
+
+### Infrastructure (built)
+
+- `lib/supabase.ts` — `createBrowserClient` factory from `@supabase/ssr`. Cookie-based
+  auth tokens, ready for SSR hydration when server components arrive.
+- `app/api/auth/check-email/route.ts` — server-only route handler. Calls GoTrue admin
+  REST endpoint, does exact JS-side email comparison, returns
+  `{ status: "new" | "password" | "sso" | "error", provider? }`. Service role key
+  never leaves the server. Returns explicit 500 `{ status: "error" }` on any network
+  or server failure — does not fail open.
+- `lib/auth.ts` — `useAuth` hook returning `{ user, loading }` via
+  `onAuthStateChange`. Shared across all components that need auth state.
+- Bottom nav and desktop top nav: show "Sign In" tab (navigates to `/auth`) when
+  unauthenticated, "Settings" tab when authenticated. Driven by `useAuth`.
+- `.env.local` — created, gitignored. Requires three values from Supabase dashboard:
+  `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+  `SUPABASE_SERVICE_ROLE_KEY`.
+- SSO (Google, Apple) — buttons present in UI but OAuth credentials not yet
+  configured in Supabase dashboard. Deferred — does not block email/password flow.
+
+### Routing logic
+
+All auth screens live under `app/auth/`.
+
+SSO provider detection happens at the email lookup step. If a submitted email belongs
+to an account created via Google or Apple SSO, the user is routed to the appropriate
+SSO flow immediately — they never see the password screen.
+
+New vs. returning detection: submit email → call `/api/auth/check-email` → returning
+user gets password screen, unrecognized email gets new user flow.
+
+On submit routing from Screen 1:
+- `password` → `app/auth/returning/`
+- `sso` → Supabase OAuth flow with `redirectTo: /auth/callback`
+- `new` → `app/auth/new/`
+- `error` → show inline error, do not route
+
+### Screen 1 — Email entry (`app/auth/page.tsx`) — BUILT
+
+Entry point for all auth. Handles both returning and new users from a single field.
+
 ```
+"Have we met?"                   ← EB Garamond display, no subtitle
+
+Email                            ← field label, system sans small, Text/2
+[your address]                   ← placeholder, disappears on type
+
+[NEXT]                           ← primary gold CTA
+
+— or —                           ← divider
+
+[G] Continue with Google         ← secondary SSO options (not yet wired)
+[⌘] Continue with Apple
+```
+
+Error states (on submit, inline below field):
+- `"That doesn't look like a valid email."` — malformed format
+- `"Something went wrong. Try again."` — network/Supabase error
+
+### Screen 2 — Returning user password (`app/auth/returning/page.tsx`) — BUILT
+
+Shown when submitted email matches an existing email/password account.
+
+```
+You've returned.                 ← EB Garamond display
+A password is all it takes.      ← EB Garamond subtitle, Text/2
+
+Password                         ← field label, system sans small, Text/2
+[........]                       ← password input, masked
+
+Forgot your password?            ← ghost link, triggers Supabase password reset
+                                    always shows confirmation (no email enumeration leak)
+                                    redirectTo: /auth/reset
+
+[ENTER]                          ← primary gold CTA
+```
+
+Error states (on submit, inline below field):
+- `"That password is incorrect."` — maps from Supabase "Invalid login credentials"
+- `"Something went wrong. Try again."` — all other errors
+
+On success: navigate to `/` (Feed).
+
+SSO edge case handled upstream: accounts created via Google or Apple are detected
+at Screen 1 and routed to SSO directly. This screen is only ever shown for
+email/password accounts.
+
+Email passed via URL param from Screen 1. Back link returns to Screen 1.
+Wrapped in Suspense for safe `useSearchParams()` in App Router.
+
+### Screen 3 — New user flow (`app/auth/new/`) — PLACEHOLDER ONLY
+
+Currently renders temporary placeholder. Full spec next session.
+Will cover: password creation, email confirmation, character-building / origin entry,
+natal portrait generation.
+
+### Screen 4 — Email confirmation — NOT YET SPECCED
+
+### Screen 5 — Character-building / birth data entry — NOT YET SPECCED
 
 ---
 
 ## Where to continue
 
-**Next: Journal.**
+**Next: New user flow (Screens 3-5).**
 
 Build in this order:
-1. Journal list page — reverse chronological entries, FAB for freeform entry
-2. Freeform entry — blank editor, date set to today, AI chat within entry
-3. Transit/House/Configuration entry — postcard at top, writing area below, AI chat
-4. Delete with confirmation — reverts Reflect CTA on originating page
+1. Screen 3 — New user password creation
+2. Screen 4 — Email confirmation
+3. Screen 5 — Character-building / origin entry (birth date, time, city)
+4. Natal portrait generation — AI deep reading, triggered at end of Screen 5
+5. Account gate on Reflect CTA — "Save your reflection" framing
+6. Reflect CTA wiring — creates journal entry, navigates to `/journal/new` or `/journal/[id]`
+7. Supabase migration — move localStorage data to Supabase on sign-up
+8. SSO configuration — Google and Apple OAuth credentials in Supabase dashboard
+9. Settings page — origin management, correction policy, account details
+10. Portrait regeneration purchase flow
 
-Do not build auth yet. Use localStorage for journal entries for now,
-same pattern as birth data. Supabase migration comes with auth.
+**After auth and portrait:** Collective Unconscious article pipeline.
 
-**Post-journal:** Auth + Supabase migration → AI interpretation layer for house
-and configuration detail views.
+**After Collective Unconscious:** AI interpretation layer for all detail views
+(house, configuration, transit).
 
 **Design system consolidation pass** — after POC is complete, before design polish.
-Claude Code can audit all atoms/components and extract a token map. All raw color,
-spacing, and blur values should be pulled into a single tokens file.
+Audit all atoms/components and extract a token map. All raw color, spacing, and blur
+values should be pulled into a single tokens file. This is also a prerequisite for
+digital cosmetics (skins).
+
+**Legal to-dos** — privacy policy and terms of service must exist before first user
+creates an account. See Legal To-Dos section. Do not launch without these.
 
 ---
 
@@ -821,6 +1456,8 @@ Do not hardcode "Vigil" anywhere — always reference APP_NAME from lib/config.t
 - **Target user:** "TikTok transit chaser" — seriously engaged with astrology as
   self-discovery, currently bouncing between multiple tools to approximate what
   Vigil does natively.
+- **Birth data (user-facing label):** Origin.
+  Use "origin" wherever the user sees it. "Birth data" remains correct in code and schema.
 
 ---
 
@@ -866,6 +1503,8 @@ Ephemeral — expires with triggering transit's orb window. Do not build for MVP
 - Progressive depth signal on You page
 - Natal interpretation updates over time
 - Journal filtering
+- AI chat within journal entries (deliberate product decision — permanent)
+- Injection of journal data into any AI query (deliberate product decision — permanent)
 - Synastry or multi-user chart comparisons
 - Social features
 - Native mobile app
@@ -875,3 +1514,10 @@ Ephemeral — expires with triggering transit's orb window. Do not build for MVP
 - Natural language question interface on You page (post-MVP premium)
 - Aspects and Bodies lenses on You page (post-MVP, pending user feedback)
 - Transit calculator for non-feed transits (post-MVP)
+- Burn animation (post-MVP — asset to be designed separately)
+- Collective Unconscious comments (post-MVP)
+- Year in Review (post-MVP)
+- Year Ahead forecast (post-MVP, paid)
+- Digital cosmetics / app skins (post-MVP)
+- Physical bazaar (post-traction)
+- Creator marketplace (post-MVP, phase three)

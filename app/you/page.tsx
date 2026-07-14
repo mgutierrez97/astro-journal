@@ -16,10 +16,11 @@ import {
   type NatalPlanet,
 } from "@/lib/natal";
 import { longitudeToSign } from "@/lib/astronomy";
-import { APP_NAME } from "@/lib/config";
 import { detectConfigurations, type ChartConfiguration } from "@/lib/configurations";
 import { getHouseReading, getPlanetNote, getAspectNote } from "@/lib/houseReadings";
 import { getConfigurationReading, getParticipantNote } from "@/lib/configurationReadings";
+
+import TopNav from "@/components/ui/TopNav";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1260,56 +1261,9 @@ export default function YouPage() {
       }}
     >
 
-      {/* Desktop top nav — always rendered */}
-      <header
-        className="hidden md:flex"
-        style={{
-          position:            "absolute",
-          top:                 0,
-          left:                0,
-          right:               0,
-          zIndex:              10,
-          padding:             "0 24px",
-          height:              52,
-          alignItems:          "center",
-          justifyContent:      "space-between",
-          borderBottom:        "0.5px solid rgba(255,255,255,0.06)",
-          background:          "rgba(13,17,23,0.6)",
-          backdropFilter:      "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-        }}
-      >
-        <span
-          style={{
-            fontFamily:    "EB Garamond, Georgia, serif",
-            fontSize:      16,
-            fontWeight:    500,
-            color:         "#E2E4EA",
-            letterSpacing: "0.02em",
-          }}
-        >
-          {APP_NAME}
-        </span>
-        <nav className="flex items-center gap-6">
-          {["Feed", "You", "Journal", "Settings"].map((tab) => (
-            <a
-              key={tab}
-              href={tab === "Feed" ? "/" : `/${tab.toLowerCase()}`}
-              style={{
-                fontSize:      10,
-                fontWeight:    500,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                color:         tab === "You" ? "#C8A96E" : "#4A5060",
-                textDecoration: "none",
-                transition:    "color 380ms ease-out",
-              }}
-            >
-              {tab}
-            </a>
-          ))}
-        </nav>
-      </header>
+      
+      <TopNav />
+
 
       {!hasData ? (
 
