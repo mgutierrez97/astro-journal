@@ -45,6 +45,16 @@ npx tsc --noEmit # type-check without emitting (run before committing)
 
 No test suite currently exists.
 
+### Git / GitHub auth note
+
+GitHub no longer accepts account passwords for git operations over HTTPS. Push
+authentication requires either a personal access token (used as the password
+when prompted) or SSH. Personal access tokens are generated under your GitHub
+account settings → Developer settings → Personal access tokens (not under repo
+settings). If a token push still fails and the repo sits under an org enforcing
+SAML SSO, the token itself may need to be separately authorized for SSO from the
+same tokens page.
+
 ---
 
 ## Runtime patterns
@@ -57,6 +67,8 @@ entries) goes through localStorage. The `useJournalEntries` hook and
 `upsertEntry`/`deleteEntry` helpers in `lib/journal.ts` dispatch a
 `"journal-entries-updated"` custom window event after every write so sibling
 components re-render. Same pattern for birth data: `"birth-data-updated"` event.
+Same pattern also now used for the auth confirmation-resend cooldown timestamp
+(see Authentication section) — flagged to move server-side later.
 
 **Inline styles are primary; Tailwind is supplemental** — most styling is inline
 style objects. Tailwind is used only for responsive breakpoints (`hidden md:flex`,
@@ -113,6 +125,26 @@ Four tabs, mobile bottom nav (desktop top nav):
 - **"Origin" is the user-facing term for birth data throughout the UI.**
   Use "origin" wherever the user sees it: "Enter your origin," "Your origin," "Origin not set."
   "Birth data" remains the correct term in code, schema, and this document.
+- **No confirm-password field on any auth screen.** Single password field + show/hide
+  eye toggle instead. Removes a field and an error state for the same typo protection.
+- **Password minimum: 8 characters, no complexity requirements.** Set in Supabase
+  dashboard (Auth → Policies). Length matters more than forced complexity; complexity
+  rules frustrate users without meaningfully improving security.
+- **Auth confirmation is link-based, not code/OTP-based.** Chosen to stay on Supabase's
+  native, simplest pattern (single `signUp()` call). Switching to code-based confirmation
+  later is possible without disrupting already-confirmed users — the confirmation method
+  only affects new signups going forward.
+- **Back button pattern (all auth screens):** ghost `←` + "Back", matching the existing
+  feed/you-page detail-view back button styling. Positioned inside the centered content
+  column, directly above the screen title — not in the outer page header. On Screens 2
+  and 3 (password steps), this is superseded by the Email/Change pattern (see below);
+  the confirm screen keeps a plain "← Back."
+- **Email/Change pattern (Screens 2 and 3 password steps only):** field label "Email"
+  (same styling as the "Password" label) with the email value as body text and an inline
+  ghost "Change" link on the same line, positioned directly above the Password field —
+  not at the top of the card. "Change" navigates to `/auth`. This replaces the plain back
+  button on these two screens (both accomplish the same "return to start" action; Email/
+  Change does it with more context).
 
 ### AI scope — locked, do not revisit
 
@@ -475,6 +507,19 @@ CTA uses secondary style (neutral outline).
 EB Garamond italic, 18px, #8B909C. Centered vertically in the viewport below the header.
 No secondary line, no CTA in the empty state — the FAB handles the action.
 
+### Locked copy — auth screens
+```
+Screen 1 (email entry):        "Have we met?"
+Screen 2 (returning password): "You've returned." / "A password is all it takes."
+Screen 3 (new user password):  "Let's begin." / "Choose a password. It's how you'll return."
+Screen 3 confirm (email link): "Almost there." / "Check your inbox. The link there brings you back."
+```
+Password field hint (Screen 3): "8+ characters" — neutral by default, status green
+with checkmark once fulfilled, status red with "Not quite enough yet." beneath if
+submitted unfulfilled.
+
+Password reset flow copy not yet drafted — see "Not yet built" below.
+
 ### Card description copy (current status)
 All copy in `lib/transitCopy.ts` is functional placeholder — written in the correct
 register but not yet through a full voice pass. A rewrite pass is planned when the
@@ -802,6 +847,10 @@ payments
   amount, created_at, stripe_payment_id
 ```
 
+Not yet built: a table or column for the auth confirmation-resend cooldown
+timestamp, currently in localStorage. Add when Supabase migration happens
+(see Authentication section).
+
 ---
 
 ## File structure (Next.js App Router)
@@ -819,24 +868,40 @@ app/
     page.tsx                  ← Collective Unconscious article view (not built)
   settings/
     page.tsx
+  auth/
+    page.tsx                  ← Screen 1, email entry (built)
+    returning/page.tsx        ← Screen 2, returning user password (built)
+    new/
+      page.tsx                ← Screen 3, new user password creation (built)
+      confirm/page.tsx        ← Screen 3 confirm, email confirmation (built)
+      vigil/page.tsx          ← Vigil ceremony (built) — replays on every visit, no completion tracking
+      origin/page.tsx         ← Screen 5, birth data entry (NOT YET BUILT)
+    callback/
+      route.ts                ← Auth code exchange → /auth/new/vigil (built)
 
 components/
   cosmic/
     SolarSystem.tsx           ← Canvas, real planet positions, built and working
-    NatalWheel.tsx            ← SVG natal chart wheel, built and working
+    NatalWheel.tsx             ← SVG natal chart wheel, built and working
     Planet.tsx
   cards/
     TransitCard.tsx           ← Built and working
     TransitDetail.tsx         ← Built and working — refinement pass complete
   journal/
     AttachComponent.tsx       ← Built and working — attach/postcard/detail modal
+  onboarding/
+    CandleNode.tsx            ← Candle dot for vigil ceremony (built)
   ui/
     GlassPanel.tsx            ← Built and working — base card component
-    CTAButton.tsx             ← Built and working
-    StatusDot.tsx             ← Built and working
-    BottomNav.tsx             ← Built and working
-    BirthDataCard.tsx         ← Built and working — shared across Feed + You
+    CTAButton.tsx              ← Built and working
+    StatusDot.tsx              ← Built and working
+    BottomNav.tsx               ← Built and working
+    TopNav.tsx                 ← Built and working — shows Sign In / Settings per useAuth state
+    BirthDataCard.tsx          ← Built and working — shared across Feed + You
                                  Listens for "vigil-open-birth-input" window event
+
+hooks/
+  useTypewriter.ts            ← Typewriter animation hook; instant param for fast-forward (built)
 
 lib/
   astronomy.ts                ← Astronomy Engine wrappers
@@ -852,6 +917,8 @@ lib/
   configurationReadings.ts    ← placeholder AI swap points for configuration detail
   signBlurbs.ts               ← 12 sign blurbs + element/modality lookup
   journal.ts                  ← useJournalEntries hook, upsertEntry, deleteEntry
+  auth.ts                     ← useAuth hook, { user, loading } via onAuthStateChange
+  vigilCopy.ts                ← VIGIL_CLAUSES array for ceremony (built)
   supabase.ts                 ← DB client + queries
   config.ts                   ← APP_NAME and other constants
 ```
@@ -1267,37 +1334,71 @@ SUPER BLUE BLOOD MOON → "Three cycles converging at once. Rare, and not accide
 - **Entry view/edit page** (`app/journal/[id]/page.tsx`) — complete
 - **AttachComponent.tsx** — complete: empty state, attach modal, postcard,
   removal warnings, detail view modal
+- **Screen 1 — Email entry** (`app/auth/page.tsx`) — complete
+- **Screen 2 — Returning user password** (`app/auth/returning/page.tsx`) — complete.
+  Includes top-of-column Email/Change block (replaces plain back button), unchanged
+  error states, plus a routing rule (not an error state): valid password on an
+  unconfirmed account redirects to the Screen 3 confirm screen rather than showing
+  an error.
+- **Screen 3 — New user password creation** (`app/auth/new/page.tsx`) — complete.
+  Single password field (no confirm field), show/hide toggle, live green/checkmark
+  fulfillment hint, red "Not quite enough yet." on unfulfilled submit, Email/Change
+  block, silent redirect to Screen 2 on "already registered," generic network error
+  reused from Screen 2.
+- **Screen 3 confirm — Email confirmation** (`app/auth/new/confirm/page.tsx`) — complete.
+  Link-based (not OTP), auto-sends on first arrival, localStorage-backed cooldown
+  timer anchored to a timestamp (survives reload/navigation), top-of-column back button.
+- **Vigil ceremony** (`app/auth/new/vigil/page.tsx`) — complete. Five-candle ceremony
+  screen between email confirmation and birth data entry. Single text slot replaces
+  opening → clauses → bridge in place. No completion tracking — replays fully on every
+  visit. Both Skip and OFFER YOUR ORIGIN navigate to `/auth/new/origin`.
+- **Auth callback route** (`app/auth/callback/route.ts`) — complete. Exchanges Supabase
+  auth code for session, redirects to `/auth/new/vigil`.
 
 ### Not yet built
+- **Screen 5 — Character-building / origin entry** — next up. Birth date, time, city.
+  Intentionally scoped to be more deliberate and exhaustive than a typical
+  speed-optimized onboarding form — framed as world-building, not a data-entry
+  step to rush through. Ends with natal portrait generation trigger.
+- **Password reset flow — flagged for rework.** Current "Forgot your password?"
+  link on Screen 2 triggers Supabase's default reset flow, which surfaces as
+  inline feedback reading like an error state. To be redesigned as its own
+  deliberate flow. Not started, deprioritized behind Screen 5.
 - **Natal portrait generation** — AI deep reading at account creation. This is
   the centerpiece of the account creation flow and must be high quality on day one.
-  Build immediately after auth is stable. Do not defer.
+  Build immediately after Screen 5. Do not defer.
 - **House and configuration detail — AI interpretation** — placeholder copy in place.
   Deferred until auth and schema are stable. Swap points are clean.
 - **Transit detail — AI READING** — placeholder copy in place. Deferred until auth
   and schema are stable.
-- **Account creation gate / auth** — next major feature
-- **Supabase integration** — currently using localStorage throughout
+- **Supabase integration for app data** — currently using localStorage throughout
+  for birth data and journal entries. Auth itself is already on Supabase Auth.
 - **Settings page** — includes Origin management with correction policy UX
 - **Birth data migration** from localStorage to Supabase on account creation
+- **Confirmation-resend cooldown moved server-side** — currently localStorage,
+  flagged to migrate to a Supabase column when SSO/Supabase migration happens.
 - **Reflect CTA wiring to journal** — REFLECT on transit/house/configuration detail
   pages should create a new journal entry pre-populated with that context and navigate
   to `/journal/new` (or `/journal/[id]` if entry already exists for that context).
-  Currently console.log only. Build after auth is stable.
+  Currently console.log only. Build after Screen 5 and portrait are stable.
 - **Portrait regeneration purchase flow** — $4–9, triggered after free correction used
 - **Collective Unconscious** — weekly article, Feed card, article page. Comments deferred.
 - **Year in Review** — post-MVP, free, annual, December
 - **Year Ahead forecast** — post-MVP, paid (~$7), annual, December
 - **Digital cosmetics** — post-MVP. Requires design token system built first.
 - **Notable conjunction detection** in Defining Aspects — post-MVP consideration.
+- **SSO configuration** — Google and Apple OAuth credentials not yet configured in
+  Supabase dashboard. Buttons present in UI but not wired.
 
 ---
 
-## Authentication flow — screen specs (in progress)
+## Authentication flow — screen specs
 
 Auth uses Supabase Auth with email/password and SSO (Google, Apple).
-Email confirmation required for email/password accounts.
-Validation is on-submit only — no real-time field validation.
+Email confirmation required for email/password accounts, link-based (not OTP/code).
+Validation is on-submit only — no real-time field validation, with the one exception
+noted below (live password-length fulfillment indicator, which doesn't block or
+error, just indicates).
 Rate limiting on signup endpoint via Vercel middleware (5 attempts per IP per hour).
 No CAPTCHA.
 
@@ -1319,6 +1420,19 @@ No CAPTCHA.
   `SUPABASE_SERVICE_ROLE_KEY`.
 - SSO (Google, Apple) — buttons present in UI but OAuth credentials not yet
   configured in Supabase dashboard. Deferred — does not block email/password flow.
+
+### Design patterns shared across auth screens (locked)
+
+- **Back button:** ghost `←` + "Back", matching feed/you-page detail back-button
+  styling. Positioned inside the centered content column, directly above the
+  screen title. Used as-is on the confirm screen; superseded by Email/Change on
+  Screens 2 and 3's password step.
+- **Email/Change block (Screens 2 and 3 password step):** "Email" label (matches
+  "Password" field label styling) + email value as body text + inline ghost
+  "Change" link on the same line, positioned directly above the Password field.
+  "Change" navigates to `/auth`.
+- **No confirm-password field anywhere.** Single field + show/hide eye toggle.
+- **Password minimum: 8 characters, no complexity rules.**
 
 ### Routing logic
 
@@ -1364,15 +1478,21 @@ Error states (on submit, inline below field):
 Shown when submitted email matches an existing email/password account.
 
 ```
+← Back                           ← ghost, top of content column, above title
+                                     — actually rendered as the Email/Change block below
+
+Email                            ← field label
+your@email.com         Change    ← body text + inline ghost link, navigates to /auth
+
 You've returned.                 ← EB Garamond display
 A password is all it takes.      ← EB Garamond subtitle, Text/2
 
-Password                         ← field label, system sans small, Text/2
+Password                         ← field label
 [........]                       ← password input, masked
 
-Forgot your password?            ← ghost link, triggers Supabase password reset
-                                    always shows confirmation (no email enumeration leak)
-                                    redirectTo: /auth/reset
+Forgot your password?            ← ghost link, flagged for rework (see below),
+                                     currently triggers Supabase password reset
+                                     redirectTo: /auth/reset
 
 [ENTER]                          ← primary gold CTA
 ```
@@ -1381,42 +1501,181 @@ Error states (on submit, inline below field):
 - `"That password is incorrect."` — maps from Supabase "Invalid login credentials"
 - `"Something went wrong. Try again."` — all other errors
 
-On success: navigate to `/` (Feed).
+**Not an error state — a routing rule:** if the password is valid but the account
+is unconfirmed (Supabase returns "email not confirmed"), redirect to
+`/auth/new/confirm?email=[email]` instead of showing any inline message here.
+This triggers a resend confirmation email, subject to the cooldown described below.
+
+On success (confirmed account): navigate to `/` (Feed).
 
 SSO edge case handled upstream: accounts created via Google or Apple are detected
 at Screen 1 and routed to SSO directly. This screen is only ever shown for
 email/password accounts.
 
-Email passed via URL param from Screen 1. Back link returns to Screen 1.
-Wrapped in Suspense for safe `useSearchParams()` in App Router.
+Email passed via URL param from Screen 1.
 
-### Screen 3 — New user flow (`app/auth/new/`) — PLACEHOLDER ONLY
+### Screen 3 — New user password creation (`app/auth/new/page.tsx`) — BUILT
 
-Currently renders temporary placeholder. Full spec next session.
-Will cover: password creation, email confirmation, character-building / origin entry,
-natal portrait generation.
+Entry point for new users routed from Screen 1.
 
-### Screen 4 — Email confirmation — NOT YET SPECCED
+```
+Email                            ← field label
+your@email.com         Change    ← body text + inline ghost link, navigates to /auth
 
-### Screen 5 — Character-building / birth data entry — NOT YET SPECCED
+Let's begin.                     ← EB Garamond display
+Choose a password. It's how you'll return.  ← EB Garamond subtitle, Text/2
+
+Password                         ← field label
+[........]              [eye]    ← password input, show/hide toggle right-aligned
+8+ characters                    ← hint, Text/3 default
+
+[NEXT]                           ← primary gold CTA
+```
+
+No confirm-password field — single field with show/hide toggle instead. Removes
+a field and an error state for the same typo protection.
+
+**Password hint states (live, updates on keystroke — the one exception to
+on-submit-only validation, since it's a fulfillment indicator, not a blocking error):**
+- Default (untouched or <8 characters): neutral Text/3, "8+ characters"
+- Fulfilled (≥8 characters): status green #3EB489, checkmark icon appears left of text
+- On submit, if still unfulfilled: hint turns status red #B85555, error line appears
+  beneath: **"Not quite enough yet."**
+
+Password rules: 8 character minimum, no complexity requirements. Set in Supabase
+dashboard (Auth → Policies).
+
+On submit (`signUp()`):
+- Success → navigate to `/auth/new/confirm?email=[email]`
+- "Already registered" error (race condition — user completed signup elsewhere
+  between Screen 1's check and this submission) → **silent redirect** to
+  `/auth/returning?email=[email]`, no error UI shown at all
+- Network/server error → inline **"Something went wrong. Try again."** below CTA
+  (reused from Screen 1/2), does not navigate
+
+Email passed via URL param from Screen 1. If missing, redirect to `/auth`.
+
+### Screen 3 confirm — Email confirmation (`app/auth/new/confirm/page.tsx`) — BUILT
+
+Passive holding screen. No field, no form-submit CTA — progression happens
+externally when the user clicks the confirmation link in their email, which
+routes to `/auth/callback`. The callback route exchanges the auth code for a
+session and redirects to the vigil ceremony at `/auth/new/vigil` — not directly
+to birth data entry.
+
+Link-based rather than OTP/code-based, to stay on Supabase's simplest native
+pattern (single `signUp()` call, no second verification mechanism). Switching to
+code-based confirmation later is possible without disrupting already-confirmed
+users — the confirmation method only affects new signups going forward, not
+existing accounts.
+
+```
+← Back                           ← ghost, top of content column, above title
+                                     navigates to /auth
+
+Almost there.                    ← EB Garamond display
+Check your inbox. The link there brings you back.  ← EB Garamond subtitle, Text/2
+
+your@email.com                   ← plain text, confirms target inbox
+
+Resend confirmation              ← ghost link
+                                     cooldown state: "Resend in [n]s", ticking live
+```
+
+**Cooldown logic:**
+- Anchored to a timestamp (last confirmation sent), not to page-mount time — a
+  user landing mid-cooldown sees the correct remaining time, not a fresh 45s
+- Currently stored in **localStorage**, keyed per email
+  (`vigil-confirmation-sent:[email]`) — matches the app's existing
+  localStorage-first pattern. **Flagged to move server-side** (e.g. a
+  `last_confirmation_sent_at` column) when Supabase migration / SSO
+  configuration happens, since this is auth/rate-limiting state and should
+  survive device switches
+- On first arrival (fresh signup, no timestamp yet for this email): auto-triggers
+  the resend call and starts the cooldown — this is what sends the actual first
+  confirmation email
+- On arrival via the Screen 2 unconfirmed-account redirect: if a timestamp
+  already exists and the cooldown hasn't elapsed, no new email is sent — user
+  just sees the remaining countdown, no duplicate send
+
+### Vigil ceremony (`app/auth/new/vigil/page.tsx`) — BUILT
+
+Interstitial ceremony screen between email confirmation and birth data entry.
+The user's first moment inside the product after confirming their account.
+
+**Route:** `/auth/new/vigil`
+**Enters from:** `/auth/callback` (email confirmation link click)
+**Exits to:** `/auth/new/origin` — via OFFER YOUR ORIGIN CTA or Skip
+
+**Ceremony sequence:**
+1. Opening line types into a single centered text slot (EB Garamond italic, gold):
+   "Something has been waiting. Before the sky, before the chart. Here."
+2. Opening complete → candle 1 fades in below, "LIGHT THE VIGIL ↓" label appears,
+   Skip fades in top-right.
+3. Tapping candle 1 ignites it and REPLACES the opening line with clause 1 in the
+   same slot. Only one line of dialogue is ever visible at any point.
+4. Each subsequent candle tap replaces the current text with the next clause.
+   Tapping a mid-typing candle fast-forwards the current clause to completion.
+5. Candle 5 tap ignites it and replaces clause 4 with the bridge line:
+   "A vigil marks a place. Yours has a moment too. Tell the sky when, and where,
+   you arrived."
+6. Bridge complete → OFFER YOUR ORIGIN (primary gold CTA) fades in at viewport bottom.
+
+**Clauses** (`lib/vigilCopy.ts` — `VIGIL_CLAUSES[0–3]`):
+```
+0: "You have looked at the stars before. Everyone has. Few have asked the stars to look back."
+1: "What you find here will not always be gentle. Some of it you already know and have not said aloud."
+2: "This is not fortune. Nothing here will tell you what happens next. It will tell you what is already true."
+3: "The sky remembers the moment you arrived. Light the last flame, traveler, and give it back its memory."
+```
+
+**Key decisions (locked):**
+- **No completion tracking. Replays in full on every visit.** All state is `useState`
+  with zero localStorage or session persistence. Loading `/auth/new/vigil` always
+  starts from the opening line — including via the Screen 2 unconfirmed-account
+  redirect edge case. Do not add "has seen ceremony" persistence under any framing.
+- Background is pure black (`#000000`), not the ground color (`#0D1117`) used elsewhere.
+- Skip available after opening completes. Both Skip and OFFER YOUR ORIGIN navigate
+  to `/auth/new/origin`.
+- `app/auth/callback/route.ts` — server route handler. Exchanges Supabase auth code
+  for session, then redirects to `/auth/new/vigil`.
+
+### Screen 5 — Character-building / birth data entry — NOT YET BUILT
+
+Route: `/auth/new/origin`. Deliberately scoped to feel more exhaustive and
+world-building than a typical speed-optimized onboarding form — this is the
+character-creation moment, not a form to rush through. Will cover birth date,
+time, city, and end by triggering natal portrait generation.
+
+### Password reset flow — FLAGGED FOR REWORK
+
+Current "Forgot your password?" link (Screen 2) triggers Supabase's default
+password reset flow, which surfaces as inline feedback that reads like an error
+state — not yet redesigned as its own deliberate flow. Not started. Deprioritized
+behind Screen 5; pick up after character-building/origin entry and portrait
+generation are built.
 
 ---
 
 ## Where to continue
 
-**Next: New user flow (Screens 3-5).**
+**Auth flow as built:** Screen 1 → Screen 2 (returning) or Screen 3 (new) →
+Screen 3 confirm → vigil ceremony (`/auth/new/vigil`) → Screen 5 (not yet built)
+
+**Next: Screen 5 — Character-building / origin entry** (`/auth/new/origin`).
 
 Build in this order:
-1. Screen 3 — New user password creation
-2. Screen 4 — Email confirmation
-3. Screen 5 — Character-building / origin entry (birth date, time, city)
-4. Natal portrait generation — AI deep reading, triggered at end of Screen 5
-5. Account gate on Reflect CTA — "Save your reflection" framing
-6. Reflect CTA wiring — creates journal entry, navigates to `/journal/new` or `/journal/[id]`
-7. Supabase migration — move localStorage data to Supabase on sign-up
-8. SSO configuration — Google and Apple OAuth credentials in Supabase dashboard
-9. Settings page — origin management, correction policy, account details
-10. Portrait regeneration purchase flow
+1. Screen 5 — Character-building / origin entry (birth date, time, city) —
+   intentionally more deliberate/exhaustive than a typical onboarding form
+2. Natal portrait generation — AI deep reading, triggered at end of Screen 5
+3. Account gate on Reflect CTA — "Save your reflection" framing
+4. Reflect CTA wiring — creates journal entry, navigates to `/journal/new` or `/journal/[id]`
+5. Supabase migration — move localStorage app data (birth data, journal entries) to
+   Supabase on sign-up; move confirmation-resend cooldown server-side
+6. SSO configuration — Google and Apple OAuth credentials in Supabase dashboard
+7. Password reset flow — rework away from the current error-adjacent inline treatment
+8. Settings page — origin management, correction policy, account details
+9. Portrait regeneration purchase flow
 
 **After auth and portrait:** Collective Unconscious article pipeline.
 
